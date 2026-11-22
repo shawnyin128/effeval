@@ -98,6 +98,7 @@ def _pre_hook(fn: Callable[[torch.Tensor], torch.Tensor]):
     def hook(_module: nn.Module, args: tuple) -> tuple:
         return (fn(args[0]), *args[1:])
 
+    hook._effeval_graph_safe = True
     return hook
 
 

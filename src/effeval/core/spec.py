@@ -52,6 +52,17 @@ class RuntimeSpec(StrictModel):
         default="sdpa",
         description="Base attention backend when no attention-internal site is quantized; only used by hf.",
     )
+    cuda_graphs: bool = Field(
+        default=True,
+        description="effeval's own decoders (speed tasks, speculative decoding): decode with a static KV "
+        "cache and CUDA graphs; false decodes with the dynamic cache. Only used by hf.",
+    )
+    static_cache_tokens: int = Field(
+        default=4096,
+        ge=256,
+        description="Cache positions per generation (the prompt plus max_new_tokens, less one); a longer "
+        "generation fails. Only used by hf with cuda_graphs.",
+    )
 
 
 class RoleSpec(StrictModel):
@@ -296,10 +307,21 @@ class Plan(StrictModel):
     )
 
 
+def runtime_excluded_fields(spec: JobSpec) -> set[str] | None:
+    """RuntimeSpec fields left out of a job's identity.
+
+    The decoder settings (cuda_graphs, static_cache_tokens) count only for speed and speculative jobs, the
+    jobs that run effeval's own decoders.
+    """
+    if spec.task.mode == Mode.SPEED or spec.decoding is not None:
+        return None
+    return {"cuda_graphs", "static_cache_tokens"}
+
+
 def runtime_identity(spec: JobSpec) -> dict[str, Any]:
-    """The runtime part of a job's identity: the whole RuntimeSpec for hf, else only the provider name."""
+    """The runtime part of a job's identity: the RuntimeSpec less excluded fields for hf, else its name."""
     if spec.runtime.name == "hf":
-        return spec.runtime.model_dump(mode="json")
+        return spec.runtime.model_dump(mode="json", exclude=runtime_excluded_fields(spec))
     return {"name": spec.runtime.name}
 
 

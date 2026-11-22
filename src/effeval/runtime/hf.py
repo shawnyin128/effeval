@@ -13,7 +13,12 @@ from effeval.core.manifest import MethodManifest
 from effeval.core.registry import manifest_from_impl, registered, resolve_entry
 from effeval.core.spec import JobSpec, ResolvedMethod, ResolvedModel, ResolvedPreprocess, RuntimeSpec
 from effeval.core.types import InProcess
-from effeval.runtime.speculative import GreedyAcceptance, ModelDrafter, SpeculativeDecoder
+from effeval.runtime.speculative import (
+    GreedyAcceptance,
+    ModelDrafter,
+    SpeculativeDecoder,
+    StaticCacheSettings,
+)
 
 
 class ManifestMismatch(RuntimeError):
@@ -139,14 +144,26 @@ def prepare(spec: JobSpec, manifest: MethodManifest) -> InProcess:
     return _apply(load(spec), spec.model, spec.method, spec.preprocess, manifest)
 
 
+def decode_settings(runtime: RuntimeSpec) -> StaticCacheSettings | None:
+    """The static-cache settings every decoder model of a job uses; None decodes with the dynamic cache.
+
+    The single place that decides cache kind, graphs and capacity: the target of both arms and the draft
+    all take their settings from here.
+    """
+    if not runtime.cuda_graphs:
+        return None
+    return StaticCacheSettings(runtime.static_cache_tokens, True)
+
+
 def prepare_speculative(
     spec: JobSpec, manifests: Mapping[str, MethodManifest]
 ) -> tuple[InProcess, dict[str, Any] | None]:
     """Prepare the target and the draft role of a speculative job through `prepare_role`.
 
-    Returns (the target handle with `decoder` set to a SpeculativeDecoder, the draft's preprocessing
-    summary or None). Raises ValueError when the two vocabularies differ and NotImplementedError for
-    sampling verification.
+    Returns (the target handle with `decoder` set to a prepared SpeculativeDecoder, the draft's
+    preprocessing summary or None). The decoder's `prepare()` result (cache allocation and graph capture of
+    both models) is left on `decoder.prepared`. Raises ValueError when the two vocabularies differ and
+    NotImplementedError for sampling verification.
     """
     decoding = spec.decoding
     if decoding is None:
@@ -167,7 +184,13 @@ def prepare_speculative(
             f"draft {draft.model.name} and target {spec.model.name} have different config.vocab_size "
             f"({drafted.model.config.vocab_size} vs {target.model.config.vocab_size})"
         )
+    settings = decode_settings(spec.runtime)
     decoder = SpeculativeDecoder(
-        target.model, ModelDrafter(drafted.model), decoding.num_speculative_tokens, GreedyAcceptance()
+        target.model,
+        ModelDrafter(drafted.model, settings),
+        decoding.num_speculative_tokens,
+        GreedyAcceptance(),
+        settings=settings,
     )
+    decoder.prepare()
     return replace(target, decoder=decoder), drafted.preprocess_applied

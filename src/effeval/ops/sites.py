@@ -194,6 +194,8 @@ def _input_hook(fmt: QuantFormat):
     def hook(_module: nn.Module, args: tuple) -> tuple:
         return (fake_quantize(args[0], fmt, kind="activation"), *args[1:])
 
+    hook._effeval_graph_safe = True
+    hook._effeval_format = fmt
     return hook
 
 
@@ -201,6 +203,8 @@ def _output_hook(fmt: QuantFormat):
     def hook(_module: nn.Module, _args: tuple, output: torch.Tensor) -> torch.Tensor:
         return fake_quantize(output, fmt, kind="activation")
 
+    hook._effeval_graph_safe = True
+    hook._effeval_format = fmt
     return hook
 
 

@@ -637,6 +637,77 @@ def _check_decoding(
         )
     if spec.runtime.name != "hf":
         _check_engine_runtime(raw, spec, catalog, res)
+    elif (speculative or timed) and spec.runtime.cuda_graphs:
+        _check_static_cache_rules(spec, res)
+        _check_static_cache_capacity(spec, res, speculative)
+
+
+def _check_static_cache_rules(spec: RunSpec, res: Resolution) -> None:
+    """CUDA-graph decoding with the static KV cache cannot serve some rules.
+
+    Rejected: attn.k/attn.v sequence options, attn.scores/attn.probs sites, MX scale e4m3 on activation sites
+    (a host sync during capture) and zero_point float over the key axis of attn.k/attn.v (the static cache's
+    zero rows change the min/max).
+    """
+    rules = spec.method.config.get("rules", []) if isinstance(spec.method.config, dict) else []
+    for r_index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            continue
+        quant = rule.get("quant")
+        quant = quant if isinstance(quant, dict) else {}
+        sites = [p for p in rule.get("sites", []) if isinstance(p, str)]
+        options = [k for k in ("residual", "group_axis") if quant.get(k) is not None]
+        unsupported = ("attn.scores", "attn.probs")
+        inside = [p for p in sites if any(fnmatch.fnmatchcase(n, p) for n in unsupported)]
+        runtime_sites = [p for p in sites if p.rsplit(".", 1)[-1] != "weight"]
+        host_sync = (
+            [f"MX scale e4m3 on {runtime_sites}"]
+            if quant.get("type") == "mx" and quant.get("scale") == "e4m3" and runtime_sites
+            else []
+        )
+        key_axis = (
+            quant.get("type") == "int"
+            and quant.get("zero_point") == "float"
+            and quant.get("granularity") in ("per_tensor", "per_channel")
+            and any(fnmatch.fnmatchcase(n, p) for p in sites for n in ("attn.k", "attn.v"))
+        )
+        float_zero = ["zero_point float over the key axis of attn.k/attn.v"] if key_axis else []
+        if options or inside or host_sync or float_zero:
+            what = (
+                f"quant options {options}"
+                if options
+                else f"sites {inside}"
+                if inside
+                else (host_sync or float_zero)[0]
+            )
+            res.error(
+                "runtime.static_cache_unsupported",
+                f"rule {r_index} uses {what}, which the static KV cache of speed and speculative jobs "
+                "does not support",
+                [f"method.config.rules[{r_index}]"],
+                hint="set runtime.cuda_graphs: false (both arms then decode with the dynamic cache)",
+            )
+
+
+def _check_static_cache_capacity(spec: RunSpec, res: Resolution, speculative: bool) -> None:
+    """A generation must fit the static KV cache: its prompt plus max_new_tokens - 1 positions.
+
+    The prompt length is unknown here, so the check uses one prompt token: it rejects only tasks that cannot
+    fit whatever the prompt is. The runtime fails a longer generation with the same hint.
+    """
+    capacity = spec.runtime.static_cache_tokens
+    for index, plan in enumerate(res.tasks):
+        if plan.mode != Mode.SPEED and (not speculative or plan.mode == Mode.LOGLIKELIHOOD):
+            continue
+        budget = spec.generation.max_new_tokens if plan.max_new_tokens is None else plan.max_new_tokens
+        if budget > capacity:
+            res.error(
+                "runtime.static_cache_capacity",
+                f"{plan.task.name} generates up to {budget} tokens after its prompt, more than the "
+                f"{capacity} positions of the static KV cache",
+                [f"tasks[{index}].params.max_new_tokens", "runtime.static_cache_tokens"],
+                hint="raise runtime.static_cache_tokens, or set runtime.cuda_graphs: false",
+            )
 
 
 def _check_speculative(spec: RunSpec, entry: ModelEntry, catalog: Catalog, res: Resolution) -> None:
@@ -718,6 +789,12 @@ def _check_speculative(spec: RunSpec, entry: ModelEntry, catalog: Catalog, res: 
 def _check_engine_runtime(raw: dict[str, Any], spec: RunSpec, catalog: Catalog, res: Resolution) -> None:
     """vLLM and SGLang load plain checkpoints: no PyTorch-hook methods, no transformers settings."""
     runtime = spec.runtime.name
+    if isinstance(raw.get("runtime"), dict) and raw["runtime"].get("cuda_graphs") is True:
+        res.note(
+            "runtime.ineffective",
+            f"runtime.cuda_graphs only applies to the hf runtime, not {runtime}",
+            ["runtime.cuda_graphs"],
+        )
     if isinstance(raw.get("runtime"), dict) and "attn_implementation" in raw["runtime"]:
         res.error(
             "runtime.attn_unsupported",

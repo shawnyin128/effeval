@@ -103,7 +103,7 @@ def job_spec(target, draft, *, draft_method=BASE, k=3, verification="greedy"):
         model=resolved(target),
         method=BASE,
         field="speculative_decoding",
-        runtime=RuntimeSpec(),
+        runtime=RuntimeSpec(cuda_graphs=False),
         decoding=ResolvedDecoding(
             mode="speculative",
             draft=ResolvedRole(model=resolved(draft), method=draft_method),
@@ -189,6 +189,7 @@ def catalog_and_plan(dirs):
         hardware={"gpu": "H100-SXM"},
         model={"name": target.code, "dtype": "float32"},
         tasks=[SPEED_TASK.name, second.name],
+        runtime={"cuda_graphs": False},
         decoding={
             "mode": "speculative",
             "draft": {"model": {"name": draft.code, "dtype": "float32"}},
@@ -278,3 +279,32 @@ def test_node_checks_cover_the_draft_role(monkeypatch, catalog_and_plan):
     main = next(j for j in plan.jobs if j.role == "main").spec
     assert set(seen) == {main.model.checkpoint, main.decoding.draft.model.checkpoint}
     assert len(seen) == 2
+
+
+def test_decode_settings_follow_the_runtime():
+    assert hf.decode_settings(RuntimeSpec(cuda_graphs=False)) is None
+    settings = hf.decode_settings(RuntimeSpec(cuda_graphs=True, static_cache_tokens=512))
+    assert (settings.capacity, settings.cuda_graphs) == (512, True)
+
+
+def test_prepare_speculative_gives_target_and_draft_the_settings_and_prepares(dirs, monkeypatch):
+    from effeval.runtime.speculative import StaticCacheSettings
+
+    settings = StaticCacheSettings(512, False)
+    seen = []
+    monkeypatch.setattr(hf, "decode_settings", lambda runtime: seen.append(runtime) or settings)
+    spec = job_spec(dirs["target"], dirs["draft"])
+    handle, _ = hf.prepare_speculative(spec, builtin_catalog().manifests)
+    decoder = handle.decoder
+    assert seen == [spec.runtime]
+    assert decoder.settings is settings
+    assert decoder.target.settings is settings and decoder.drafter.model.settings is settings
+    assert decoder.prepared is not None
+    for role in ("target", "draft"):
+        assert decoder.prepared[role]["kind"] == "static" and decoder.prepared[role]["capacity"] == 512
+
+
+def test_prepare_speculative_without_graphs_decodes_with_the_dynamic_cache(dirs):
+    handle, _ = hf.prepare_speculative(job_spec(dirs["target"], dirs["draft"]), builtin_catalog().manifests)
+    assert handle.decoder.settings is None
+    assert handle.decoder.prepared == {"target": {"kind": "dynamic"}, "draft": {"kind": "dynamic"}}

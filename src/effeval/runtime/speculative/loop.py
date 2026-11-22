@@ -6,13 +6,14 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
 
 import torch
 
 from effeval.runtime.speculative.drafters import Drafter
 from effeval.runtime.speculative.rules import AcceptanceRule, TokenSampler
-from effeval.runtime.speculative.state import CachedModel
+from effeval.runtime.speculative.state import make_cached_model, prepare_cached_model
+from effeval.runtime.speculative.static import StaticCacheSettings
 
 Finish = Literal["eos", "length", "stop"]
 
@@ -146,11 +147,36 @@ def _append(
     return extended, len(block), None
 
 
-class AutoregressiveDecoder:
-    """One target forward per token; shares prefill and cache code with the speculative loop."""
+def cache_rows(prompt_length: int, max_new_tokens: int) -> int:
+    """Target cache positions a generation of up to `max_new_tokens` tokens after the prompt needs.
 
-    def __init__(self, model):
-        self.target = CachedModel(model)
+    The same for both decoders: the last generated token is never fed and a speculative round drafts at most
+    max_new_tokens - generated - 1 tokens.
+    """
+    return prompt_length + max_new_tokens - 1
+
+
+def _require_prepared(settings: StaticCacheSettings | None, prepared: dict[str, Any] | None) -> None:
+    if settings is not None and settings.cuda_graphs and prepared is None:
+        raise RuntimeError("graph mode needs the decoder's prepare() before generate")
+
+
+class AutoregressiveDecoder:
+    """One target forward per token; shares prefill and cache code with the speculative loop.
+
+    With `settings` the target uses a static cache (see `StaticCachedModel`); in graph mode `prepare` must
+    run before `generate`. `prepared` holds the result of `prepare` (None before).
+    """
+
+    def __init__(self, model, settings: StaticCacheSettings | None = None):
+        self.target = make_cached_model(model, settings)
+        self.settings = settings
+        self.prepared: dict[str, Any] | None = None
+
+    def prepare(self) -> dict[str, Any]:
+        """Prepare the target's decode shape outside any timed region; returns its cache description."""
+        self.prepared = prepare_cached_model(self.target, [(1, 1)])
+        return self.prepared
 
     @property
     def models(self) -> list[torch.nn.Module]:
@@ -168,6 +194,8 @@ class AutoregressiveDecoder:
         stop: Callable[[torch.Tensor], bool] | None = None,
     ) -> DecodeResult:
         _validate(prompt_ids, max_new_tokens)
+        _require_prepared(self.settings, self.prepared)
+        self.target.reserve(cache_rows(prompt_ids.shape[1], max_new_tokens))
         self.target.reset()
         clock = _Clock(self.target.device)
         stats = DecodeStats()
@@ -206,6 +234,9 @@ class SpeculativeDecoder:
 
     `on_round`, if given, receives {"n", "k", "m", "target_cached", "draft_cached"} after each round
     (n = sequence length before the round, k = drafted tokens, m = accepted drafts), before truncation.
+
+    With `settings` the target uses a static cache (see `StaticCachedModel`); in graph mode `prepare` (target
+    and drafter) must run before `generate`. `prepared` holds the result of `prepare` (None before).
     """
 
     def __init__(
@@ -215,14 +246,30 @@ class SpeculativeDecoder:
         k: int,
         rule: AcceptanceRule,
         on_round: Callable[[dict], None] | None = None,
+        settings: StaticCacheSettings | None = None,
     ):
         if k < 1:
             raise ValueError("k must be at least 1")
-        self.target = CachedModel(model)
+        self.target = make_cached_model(model, settings)
         self.drafter = drafter
         self.k = k
         self.rule = rule
         self.on_round = on_round
+        self.settings = settings
+        self.prepared: dict[str, Any] | None = None
+
+    def prepare(self) -> dict[str, Any]:
+        """Prepare target and drafter decode shapes outside any timed region.
+
+        The target runs 1 token, or 2 to k + 1 tokens keeping all their logits. Returns {"target": ...,
+        "draft": ...} with the cache description of each.
+        """
+        shapes = [(1, 1), *((q, q) for q in range(2, self.k + 2))]
+        self.prepared = {
+            "target": prepare_cached_model(self.target, shapes),
+            "draft": self.drafter.prepare(),
+        }
+        return self.prepared
 
     @property
     def models(self) -> list[torch.nn.Module]:
@@ -240,6 +287,8 @@ class SpeculativeDecoder:
         stop: Callable[[torch.Tensor], bool] | None = None,
     ) -> DecodeResult:
         _validate(prompt_ids, max_new_tokens)
+        _require_prepared(self.settings, self.prepared)
+        self.target.reserve(cache_rows(prompt_ids.shape[1], max_new_tokens))
         self.target.reset()
         self.drafter.reset()
         clock = _Clock(self.target.device)

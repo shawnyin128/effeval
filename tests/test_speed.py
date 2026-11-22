@@ -279,7 +279,8 @@ def test_a_new_user_file_shows_up_without_a_restart(user_sets):
     assert "speed/later" in builtin_catalog().tasks
 
 
-def planned(name, warmup=1):
+def planned(name, warmup=1, runtime=None):
+    """The main and reference jobs of a speculative speed plan; `runtime` defaults to the dynamic cache."""
     raw = {
         "model": "qwen3-8b",
         "method": {"name": "base"},
@@ -287,6 +288,7 @@ def planned(name, warmup=1):
         "tasks": [{"name": name, "params": {"max_new_tokens": 10, "warmup": warmup}}],
         "decoding": {"mode": "speculative", "draft": {"model": "qwen3-0.6b"}, "num_speculative_tokens": 3},
         "hardware": {"gpu": "H100-SXM"},
+        "runtime": {"cuda_graphs": False} if runtime is None else runtime,
     }
     plan, issues = freeze(raw, builtin_catalog(), owner=None, server=None, lookup=None)
     assert plan is not None, issues
@@ -960,6 +962,7 @@ class StubDecoder:
     """A decoder that returns fixed statistics, to check how the backend turns them into a Generation."""
 
     models: list = []  # noqa: RUF012
+    prepared: dict = {}  # noqa: RUF012
 
     def generate(self, prompt_ids, *, max_new_tokens, sampler, eos_ids, stop=None):
         from effeval.runtime.speculative.loop import DecodeResult, DecodeStats
@@ -1028,6 +1031,8 @@ class FakeModel:
 
 
 class DeviceDecoder:
+    prepared: dict = {}  # noqa: RUF012
+
     def __init__(self, *models):
         self.models = list(models)
 
@@ -1157,7 +1162,8 @@ def test_gpu_peak_memory_follows_resets_and_synchronize_waits_for_pending_work(c
     del block
     assert backend.peak_memory_gb() >= 0.25
     backend.reset_peak_memory()
-    assert backend.peak_memory_gb() < 0.1
+    # The peak restarts at what target, draft and decode cache still hold on cuda:0 (counted once).
+    assert backend.peak_memory_gb() == pytest.approx(torch.cuda.memory_allocated("cuda:0") / 1e9)
 
     pending = busy(torch, "cuda:0")
     backend.synchronize()
@@ -1182,3 +1188,144 @@ def test_gpu_peak_memory_and_synchronize_cover_a_draft_on_another_device(cuda, t
     pending = busy(torch, "cuda:1")
     backend.synchronize()
     assert pending.query()
+
+
+# Decode cache: one settings function for both arms, prepare outside the timed region
+
+
+def static_eager(runtime):
+    """Stand-in for `hf.decode_settings` that gives the static cache without graphs (runs on CPU)."""
+    from effeval.runtime.speculative import StaticCacheSettings
+
+    return StaticCacheSettings(64, False) if runtime.cuda_graphs else None
+
+
+def arm_handles(tiny, main_job, k=3):
+    """A plain target handle and a speculative one, both taking settings from `hf.decode_settings`."""
+    from effeval.core.types import InProcess
+    from effeval.runtime import hf
+    from effeval.runtime.speculative import GreedyAcceptance, ModelDrafter, SpeculativeDecoder
+
+    tokenizer, target, draft = tiny
+    settings = hf.decode_settings(main_job.spec.runtime)
+    drafter = ModelDrafter(draft, settings)
+    decoder = SpeculativeDecoder(target, drafter, k, GreedyAcceptance(), settings=settings)
+    plain = InProcess(model=target, tokenizer=tokenizer)
+    return plain, replace(plain, decoder=decoder)
+
+
+@pytest.mark.compute
+def test_both_arms_report_the_same_target_decode_cache_and_the_draft_matches(tiny, tiny_set, monkeypatch):
+    from effeval.runtime import hf
+
+    monkeypatch.setattr(hf, "decode_settings", static_eager)
+    main_job, ref_job = planned("speed/tiny", runtime={})
+    task = builtin_catalog().tasks["speed/tiny"]
+    plain, spec_handle = arm_handles(tiny, main_job)
+
+    ref = speed.EVALUATOR.run(plain, ref_job.spec, task, None)
+    main = speed.EVALUATOR.run(spec_handle, main_job.spec, task, None)
+
+    timing = {"graphs", "capture_ms"}
+    ref_target = {k: v for k, v in ref.protocol["decode_cache"]["target"].items() if k not in timing}
+    main_target = {k: v for k, v in main.protocol["decode_cache"]["target"].items() if k not in timing}
+    main_draft = {k: v for k, v in main.protocol["decode_cache"]["draft"].items() if k not in timing}
+    assert ref_target["kind"] == "static" and ref_target["capacity"] == 64
+    assert set(ref.protocol["decode_cache"]) == {"target"}
+    assert ref_target == main_target == main_draft
+
+
+@pytest.mark.compute
+def test_both_arms_record_the_attention_function_they_measured_with(tiny, tiny_set, monkeypatch):
+    import copy
+
+    from effeval.core.types import InProcess
+    from effeval.run import attention_used
+    from effeval.runtime import hf
+    from effeval.runtime.speculative.static_attention import SDPA_NAME
+
+    monkeypatch.setattr(hf, "decode_settings", static_eager)
+    main_job, ref_job = planned("speed/tiny", runtime={})
+    task = builtin_catalog().tasks["speed/tiny"]
+
+    def own_models():
+        models = (tiny[0], copy.deepcopy(tiny[1]), copy.deepcopy(tiny[2]))
+        for model in models[1:]:
+            model.set_attn_implementation("sdpa")
+        return models
+
+    plain = InProcess(model=own_models()[1], tokenizer=tiny[0])
+    _, spec_handle = arm_handles(own_models(), main_job)
+    before_ref = plain.model.config._attn_implementation  # what run.py reads before the backend exists
+    before_main = spec_handle.model.config._attn_implementation  # the decoder is built before run.py reads it
+    assert before_ref == "sdpa"
+
+    ref = speed.EVALUATOR.run(plain, ref_job.spec, task, None)
+    main = speed.EVALUATOR.run(spec_handle, main_job.spec, task, None)
+
+    assert attention_used(ref.protocol, before_ref) == attention_used(main.protocol, before_main) == SDPA_NAME
+    assert attention_used({}, "sdpa") == "sdpa"
+    assert attention_used({"decode_cache": {"target": {"kind": "dynamic"}}}, "sdpa") == "sdpa"
+
+
+@pytest.mark.compute
+def test_the_dynamic_cache_is_reported_for_both_roles(tiny, tiny_set):
+    main_job, ref_job = planned("speed/tiny")
+    plain, spec_handle = arm_handles(tiny, main_job)
+    from effeval.evaluators._speed_inprocess import InProcessBackend
+
+    assert InProcessBackend(plain, ref_job.spec).describe()["decode_cache"] == {"target": {"kind": "dynamic"}}
+    assert InProcessBackend(spec_handle, main_job.spec).describe()["decode_cache"] == {
+        "target": {"kind": "dynamic"},
+        "draft": {"kind": "dynamic"},
+    }
+
+
+@pytest.mark.compute
+@pytest.mark.parametrize("speculative", [False, True])
+def test_prepare_runs_once_before_the_first_generate(tiny, tiny_set, monkeypatch, speculative):
+    from effeval.runtime.speculative import AutoregressiveDecoder, SpeculativeDecoder
+
+    calls = []
+    decoder_class = SpeculativeDecoder if speculative else AutoregressiveDecoder
+    for name in ("prepare", "generate"):
+        original = getattr(decoder_class, name)
+
+        def spy(self, *args, _name=name, _original=original, **kwargs):
+            calls.append(_name)
+            return _original(self, *args, **kwargs)
+
+        monkeypatch.setattr(decoder_class, name, spy)
+    main_job, ref_job = planned("speed/tiny")
+    task = builtin_catalog().tasks["speed/tiny"]
+    plain, spec_handle = arm_handles(tiny, main_job)
+    handle, job = (spec_handle, main_job) if speculative else (plain, ref_job)
+
+    backend = speed.make_backend(handle, job.spec)
+    assert calls == ["prepare"]
+
+    speed.evaluate(backend, job.spec, task)
+    assert calls.count("prepare") == 1 and calls[0] == "prepare"
+    assert calls.count("generate") > 1 and set(calls[1:]) == {"generate"}
+
+
+@pytest.mark.compute
+def test_a_prepared_decoder_is_not_prepared_again(tiny, tiny_set, monkeypatch):
+    from effeval.runtime.speculative import SpeculativeDecoder
+
+    main_job, _ = planned("speed/tiny")
+    _, spec_handle = arm_handles(tiny, main_job)
+    spec_handle.decoder.prepare()
+    monkeypatch.setattr(SpeculativeDecoder, "prepare", lambda self: pytest.fail("prepared twice"))
+    speed.make_backend(spec_handle, main_job.spec)
+
+
+@pytest.mark.compute
+def test_cuda_graphs_on_a_cpu_model_fail_fast(tiny, tiny_set):
+    _, ref_job = planned("speed/tiny", runtime={})
+    assert ref_job.spec.runtime.cuda_graphs
+    from effeval.core.types import InProcess
+
+    tokenizer, target, _ = tiny
+    with pytest.raises(RuntimeError, match="CUDA"):
+        speed.make_backend(InProcess(model=target, tokenizer=tokenizer), ref_job.spec)

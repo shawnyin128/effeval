@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+from typing import Any
+
 import torch
+
+from effeval.runtime.speculative.static import StaticCachedModel, StaticCacheSettings
 
 
 class CachedModel:
@@ -19,6 +24,9 @@ class CachedModel:
     @property
     def device(self) -> torch.device:
         return self.model.device
+
+    def reserve(self, length: int) -> None:
+        """Accept any generation length (a dynamic cache has no capacity)."""
 
     def reset(self) -> None:
         """Drop the cache; the next `feed` starts from an empty one."""
@@ -55,3 +63,21 @@ class CachedModel:
         if self.cached > length:
             self.cache.crop(-(self.cached - length))
             self.cached = length
+
+
+def make_cached_model(model, settings: StaticCacheSettings | None) -> CachedModel | StaticCachedModel:
+    """A `CachedModel` for `settings` None, else a `StaticCachedModel` with those settings."""
+    return CachedModel(model) if settings is None else StaticCachedModel(model, settings)
+
+
+def prepare_cached_model(
+    cached: CachedModel | StaticCachedModel, shapes: Iterable[tuple[int, int]]
+) -> dict[str, Any]:
+    """Prepare `cached` for the decode `shapes` (tokens fed, logits rows kept) and describe its cache.
+
+    Returns {"kind": "dynamic"} for a `CachedModel`; for a `StaticCachedModel` {"kind": "static",
+    "cuda_graphs", "capacity", "buckets", "graphs", "capture_ms"}.
+    """
+    if isinstance(cached, StaticCachedModel):
+        return {"kind": "static", "cuda_graphs": cached.settings.cuda_graphs, **cached.prepare(shapes)}
+    return {"kind": "dynamic"}

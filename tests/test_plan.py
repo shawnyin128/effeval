@@ -180,7 +180,7 @@ def test_default_settings_keep_the_run_key_of_specs_without_settings():
     legacy = {
         "model": spec.model.model_dump(mode="json"),
         "method": {"name": spec.method.name, "version": spec.method.version, "config": spec.method.config},
-        "runtime": spec.runtime.model_dump(mode="json"),
+        "runtime": spec.runtime.model_dump(mode="json", exclude={"cuda_graphs", "static_cache_tokens"}),
         "task": {
             "name": task.name,
             "version": task.version,

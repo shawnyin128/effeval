@@ -10,6 +10,7 @@ from effeval.core.catalog import DEFAULT_SAMPLING_TEMPERATURE
 from effeval.core.spec import JobSpec
 from effeval.core.types import InProcess
 from effeval.evaluators.speed_backend import Generation
+from effeval.runtime import hf
 from effeval.runtime.speculative import AutoregressiveDecoder, TokenSampler
 
 
@@ -53,8 +54,10 @@ class InProcessBackend:
 
     def __init__(self, handle: InProcess, job: JobSpec):
         self.tokenizer = handle.tokenizer
-        self._decoder = handle.decoder or AutoregressiveDecoder(handle.model)
+        self._decoder = handle.decoder or AutoregressiveDecoder(handle.model, hf.decode_settings(job.runtime))
         self._speculative = handle.decoder is not None
+        if self._decoder.prepared is None:
+            self._decoder.prepare()
         self._device = handle.model.get_input_embeddings().weight.device
         self._cuda_devices = _cuda_devices(self._decoder.models)
         self._eos_ids = _eos_ids(handle)
@@ -86,10 +89,16 @@ class InProcessBackend:
         names = [torch.cuda.get_device_name(d) for d in self._cuda_devices]
         return {
             "decoder": decoder,
+            "decode_cache": self._decode_cache(),
             "device": ", ".join(names) if names else "cpu",
             "timing": timing,
             "temperature": self._temperature,
         }
+
+    def _decode_cache(self) -> dict[str, Any]:
+        """The cache description of each model the decoder runs: `target` (and `draft`)."""
+        prepared = self._decoder.prepared
+        return prepared if self._speculative else {"target": prepared}
 
     @torch.inference_mode()
     def generate(self, prompt_ids: list[int], max_new_tokens: int) -> Generation:

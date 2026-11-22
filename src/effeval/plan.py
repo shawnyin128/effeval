@@ -22,6 +22,7 @@ from effeval.core.spec import (
     ResolvedTask,
     ReusedJob,
     run_key,
+    runtime_excluded_fields,
     runtime_identity,
 )
 from effeval.core.types import Artifact, Deviation, Fidelity, Issue, Severity, utc_now
@@ -406,7 +407,7 @@ def model_group_key(job: Job) -> str:
     """Jobs with the same model-preparation config share one prepared model on the compute node."""
     spec = job.spec
     if spec.runtime.name == "hf":
-        runtime = spec.runtime.model_dump_json()
+        runtime = spec.runtime.model_dump_json(exclude=runtime_excluded_fields(spec))
     else:
         runtime = canonical_json(runtime_identity(spec))
     key = f"{spec.model.model_dump_json()}|{spec.method.model_dump_json()}|{runtime}"

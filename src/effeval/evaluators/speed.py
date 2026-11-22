@@ -262,6 +262,8 @@ def evaluate(backend: SpeedBackend, job: JobSpec, task: TaskDef) -> QualityResul
         "temperature": described["temperature"],
         "categories": categories,
     }
+    if "decode_cache" in described:
+        protocol["decode_cache"] = described["decode_cache"]
     if prompt_set.info.name == "spec_bench":
         protocol["deviations_from_spec_bench"] = list(SPEC_BENCH_DEVIATIONS)
     return QualityResult(

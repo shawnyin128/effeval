@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 import torch
 
 from effeval.runtime.speculative.rules import Proposal, TokenSampler
-from effeval.runtime.speculative.state import CachedModel
+from effeval.runtime.speculative.state import make_cached_model, prepare_cached_model
+from effeval.runtime.speculative.static import StaticCacheSettings
 
 
 class Drafter(Protocol):
@@ -21,6 +22,10 @@ class Drafter(Protocol):
     @property
     def models(self) -> list[torch.nn.Module]:
         """The neural models the drafter runs (empty if none)."""
+        ...
+
+    def prepare(self) -> dict[str, Any]:
+        """Set up the drafter's models outside any timed region; returns a description ({} if stateless)."""
         ...
 
     def reset(self) -> None:
@@ -39,11 +44,13 @@ class Drafter(Protocol):
 class ModelDrafter:
     """An independent draft model with its own KV cache.
 
-    A proposal leaves the cache at n + k - 1 tokens: the last drafted token is never fed.
+    A proposal leaves the cache at n + k - 1 tokens: the last drafted token is never fed. With `settings`
+    the cache is static (see `StaticCachedModel`) and `prepare` must run before the first proposal in graph
+    mode.
     """
 
-    def __init__(self, model):
-        self.model = CachedModel(model)
+    def __init__(self, model, settings: StaticCacheSettings | None = None):
+        self.model = make_cached_model(model, settings)
 
     @property
     def cached(self) -> int:
@@ -52,6 +59,10 @@ class ModelDrafter:
     @property
     def models(self) -> list[torch.nn.Module]:
         return [self.model.model]
+
+    def prepare(self) -> dict[str, Any]:
+        """Prepare the draft model for its decode steps: 1 token, or 2 after a fully accepted round."""
+        return prepare_cached_model(self.model, [(1, 1), (2, 1)])
 
     def reset(self) -> None:
         self.model.reset()

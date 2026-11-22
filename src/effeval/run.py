@@ -19,6 +19,7 @@ import uuid
 from collections.abc import Callable
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from urllib.parse import unquote, urlparse
 
 import torch
@@ -83,6 +84,12 @@ def fingerprint(catalog: Catalog, attn_implementation: str | None) -> EnvFingerp
         effeval_git_commit=commit.stdout.strip() if commit.returncode == 0 else None,
         attn_implementation=attn_implementation,
     )
+
+
+def attention_used(protocol: dict[str, Any], default: str | None) -> str | None:
+    """The attention function the decoder measured with (`decode_cache.target.attention`), else `default`."""
+    target = (protocol.get("decode_cache") or {}).get("target") or {}
+    return target.get("attention", default)
 
 
 def with_repro(job: Job, result: QualityResult, catalog: Catalog) -> Fidelity:
@@ -259,7 +266,7 @@ def run_plan(
             spec=job.spec.model_dump(mode="json"),
             metrics=metrics,
             protocol=protocol,
-            env=fingerprint(catalog, attn),
+            env=fingerprint(catalog, attention_used(protocol, attn)),
             fidelity=with_repro(job, result, catalog),
             artifacts={
                 "per_sample": samples_path.resolve().as_uri(),
