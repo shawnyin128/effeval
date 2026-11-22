@@ -1,0 +1,29 @@
+name: awq
+title: AWQ
+description: AWQ activation-aware scaling (scale ratio searched per group on the quantized block output, folded into norm gains and up_proj) followed by the weight clip search, calibrated on Pile validation blocks. Needs the downstream weight quantizer (awq_w4g128, awq_w3g128).
+paper: {title: "AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration", arxiv: "2306.00978", official_repo: "https://github.com/mit-han-lab/llm-awq@d6e797a42b9ef7778de8ee2352116e0f48a78d61"}
+# Qwen3 deviations: the official repository has no Qwen3 support (norm classes and decoder layers are rejected), the same
+# groups are applied to Qwen3's modules; the v_proj -> o_proj scale is omitted because the official code skips it when the
+# weight shapes differ, which is always the case under GQA; the search and clip run in float32 (the official code uses
+# fp16); effeval's asymmetric integer grid includes zero in every group's range (GPTQ convention) while AWQ's does not,
+# which only matters for groups whose weights are all positive or all negative; the next layer's input is the output
+# of the unscaled fp layer, as in the official code.
+values:
+  preprocess.steps:
+    value:
+      - kind: scaling
+        calibration: {dataset: pile_val, sampling: concat_blocks, n_samples: 128, seqlen: 512, seed: 42}
+        entries:
+          - position: norm.input_layernorm.out
+            layers: all
+            mode: offline
+            source: &awq {type: awq, n_grid: 20, act_stat: absmean, clip_search: {n_grid: 20, max_shrink: 0.5, n_tokens: 512, skip: [q_proj, k_proj]}}
+          - position: norm.post_attention_layernorm.out
+            layers: all
+            mode: offline
+            source: *awq
+          - position: linear.mlp.down_proj.input
+            layers: all
+            mode: offline
+            source: *awq
+    source: "code: awq/quantize/auto_scale.py#L29-L30 and #L124-L148 (mean |x| per channel, ratio grid 20 in [0, 0.95], scales / sqrt(max * min), block-output MSE with the downstream fake quantizer), #L215-L256 (Llama groups: input_layernorm -> q/k/v with the attention block, post_attention_layernorm -> gate/up with the mlp, up_proj -> down_proj; v -> o skipped when shapes differ), awq/quantize/auto_clip.py#L11-L54 and #L74-L76 (clip search: 512 tokens, n_grid 20, max_shrink 0.5, q/k skipped), awq/quantize/pre_quant.py#L193-L234 (propagation through the fp layer, scale then clip), awq/utils/calib_data.py#L7-L31 and awq/entry.py#L203-L209 (pile-val-backup, 128 documents of at most 512 tokens, shuffle seed 42, concatenated and cut into 512-token blocks)"

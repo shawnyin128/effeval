@@ -1,0 +1,111 @@
+{
+ "evaluator": {
+  "capabilities": {
+   "handles": [
+    "in_process"
+   ],
+   "modes": [
+    "generation"
+   ]
+  },
+  "description": "EvalScope native backend with the in-process model wrapped a",
+  "library": "evalscope",
+  "library_version": "1.15.0",
+  "name": "evalscope",
+  "version": "2"
+ },
+ "generated_at": "2026-11-20T00:00:00+00:00",
+ "tasks": [
+  {
+   "description": "## Overview\n\nMMLU (Massive Multitask Language Understanding)",
+   "fewshot_allowed": null,
+   "metrics": [
+    {
+     "higher_is_better": null,
+     "name": "accuracy",
+     "stderr_of": null
+    }
+   ],
+   "mode": "generation",
+   "name": "mmlu",
+   "num_fewshot": 5,
+   "produces": [
+    "per_sample"
+   ],
+   "sample_scores": [
+    "accuracy",
+    "correct"
+   ],
+   "subsets": [
+    "abstract_algebra",
+    "anatomy"
+   ],
+   "subtasks": [
+    "mmlu:anatomy"
+   ],
+   "tags": [
+    "Knowledge",
+    "MCQ"
+   ],
+   "version": "v1.0"
+  },
+  {
+   "description": "## Overview\n\nGSM8K (Grade School Math 8K) is a high-quality ",
+   "fewshot_allowed": null,
+   "metrics": [
+    {
+     "higher_is_better": null,
+     "name": "accuracy",
+     "stderr_of": null
+    }
+   ],
+   "mode": "generation",
+   "name": "gsm8k",
+   "num_fewshot": 4,
+   "produces": [
+    "per_sample"
+   ],
+   "sample_scores": [
+    "accuracy",
+    "correct"
+   ],
+   "subsets": null,
+   "subtasks": [],
+   "tags": [
+    "Math",
+    "Reasoning"
+   ],
+   "version": "v1.2"
+  },
+  {
+   "description": "## Overview\n\nMMLU (Massive Multitask Language Understanding)",
+   "fewshot_allowed": null,
+   "metrics": [
+    {
+     "higher_is_better": null,
+     "name": "accuracy",
+     "stderr_of": null
+    }
+   ],
+   "mode": "generation",
+   "name": "mmlu:anatomy",
+   "num_fewshot": 5,
+   "produces": [
+    "per_sample"
+   ],
+   "sample_scores": [
+    "accuracy",
+    "correct"
+   ],
+   "subsets": [
+    "anatomy"
+   ],
+   "subtasks": [],
+   "tags": [
+    "Knowledge",
+    "MCQ"
+   ],
+   "version": "v1.0"
+  }
+ ]
+}

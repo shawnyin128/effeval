@@ -1,0 +1,19 @@
+# Tasks the UI pins at the top of its task picker; names missing from the catalog are skipped.
+tasks:
+  - lm_eval/mmlu
+  - lm_eval/gsm8k
+  - lm_eval/arc_easy
+  - lm_eval/arc_challenge
+  - lm_eval/hellaswag
+  - lm_eval/winogrande
+  - lm_eval/piqa
+  - lm_eval/wikitext
+  - evalscope/aime25
+  - evalscope/aime26
+  - evalscope/gpqa_diamond
+  - evalscope/math_500
+  - evalscope/gsm8k
+  - evalscope/humaneval
+  - evalscope/live_code_bench
+  - evalscope/mmlu
+  - native/wikitext2_ppl

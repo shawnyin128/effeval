@@ -1,0 +1,90 @@
+# The rendering contract for every metric: a result column appears because a record carries a metric, and it is
+# labelled, formatted, coloured and grouped from this file. Declare a metric here and implement it (an evaluator
+# reports it, or effeval.metrics.derived computes it from per-sample outputs); nothing else is hard-coded.
+metrics:
+  - name: ppl
+    label: PPL
+    kind: quality
+    description: Perplexity, exp(mean token NLL).
+    format: {style: fixed, decimals: 2}
+    higher_is_better: false
+  - name: accuracy
+    label: Acc
+    kind: quality
+    description: Share of samples answered correctly.
+    format: {style: fixed, decimals: 3}
+    higher_is_better: true
+  - name: accuracy_stderr
+    label: Acc stderr
+    kind: quality
+    description: Standard error of the accuracy, sqrt(p (1 - p) / (n - 1)) over per-sample correctness.
+    format: {style: fixed, decimals: 4}
+    higher_is_better: null
+    placement: detail
+  - name: speedup
+    label: Speedup
+    kind: system
+    description: Geometric mean over shapes of float16 matmul latency / kernel latency (median of the repeats).
+    unit: "×"
+    format: {style: fixed, decimals: 2}
+    higher_is_better: true
+  - name: kernel_rel_err
+    label: Kernel err
+    kind: system
+    description: Largest relative L2 error of the kernel output against float32 matmul with the dequantized weights.
+    format: {style: scientific, decimals: 1}
+    higher_is_better: false
+    placement: detail
+  - name: quant_rel_err
+    label: Quant err
+    kind: system
+    description: Mean relative L2 error of dequantized-weight matmul against the original weights.
+    format: {style: scientific, decimals: 2}
+    higher_is_better: false
+  # System metrics: the rendering contract is fixed now; kernel and serving evaluators report them later.
+  - name: latency_ms
+    label: Latency
+    kind: system
+    description: Mean end-to-end latency per request.
+    unit: ms
+    format: {style: fixed, decimals: 1}
+    higher_is_better: false
+  - name: ttft_ms
+    label: TTFT
+    kind: system
+    description: Mean time to first token.
+    unit: ms
+    format: {style: fixed, decimals: 1}
+    higher_is_better: false
+  - name: throughput_tok_s
+    label: Throughput
+    kind: system
+    description: Generated tokens per second.
+    unit: tok/s
+    format: {style: fixed, decimals: 0}
+    higher_is_better: true
+  - name: peak_memory_gb
+    label: Peak memory
+    kind: system
+    description: Peak accelerator memory during the run.
+    unit: GB
+    format: {style: fixed, decimals: 2}
+    higher_is_better: false
+
+categories:
+  - {name: language_modeling, label: PPL, order: 0, title: Perplexity}
+  - {name: qa, label: General tasks, order: 1, title: Knowledge}
+  - {name: commonsense, label: General tasks, order: 1, title: Commonsense}
+  - {name: reasoning, label: General tasks, order: 1, title: Reasoning}
+  - {name: math, label: General tasks, order: 1, title: Math}
+  - {name: code, label: Code, order: 2, title: Coding}
+  - {name: instruction_following, label: Instruction following, order: 3, title: Instruction following}
+  - {name: long_context, label: Long context, order: 4, title: Long context}
+  - {name: multilingual, label: Multilingual, order: 5, title: Multilingual}
+  - {name: other, label: Other, order: 8, title: Other}
+  - {name: kernel, label: Kernel, order: 9}
+  - {name: latency, label: Latency, order: 10}
+  - {name: throughput, label: Throughput, order: 11}
+
+averages:
+  - {label: Average, metric: accuracy, categories: [qa, commonsense, reasoning, math]}

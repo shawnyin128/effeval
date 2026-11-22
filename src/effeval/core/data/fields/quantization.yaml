@@ -1,0 +1,7 @@
+name: quantization
+description: Weight/activation/attention quantization. Compared against the unquantized model.
+modes: [loglikelihood, generation, benchmark]
+reference:
+  method: {name: base, preset: null, config: {}}
+  preprocess: null
+compare: [flip_rate, kl]

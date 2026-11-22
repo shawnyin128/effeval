@@ -1,0 +1,31 @@
+# Where tasks land in the picker and in result-column bands. A task takes the first category (in file order) whose
+# `metrics` it reports; failing that, the first whose `names` regexes (searched in the lower-case task name) match;
+# failing that, the first sharing a `tags` entry. A task with no match of its own inherits its group's category.
+# Categories are declared in metrics.yaml.
+rules:
+  - category: language_modeling
+    metrics: [perplexity, word_perplexity, byte_perplexity, bits_per_byte, ppl, token_perplexity]
+    names: ['wikitext', 'paloma', '(^|[_:/-])pile([_:/-]|$)', 'lambada', '(^|[_:/-])c4([_:/-]|$)', 'uncheatable', 'ptb']
+  - category: code
+    names: ['humaneval', 'mbpp', 'cruxeval', 'code2text', 'code_x_glue', 'live_?code', 'bigcodebench', 'ds1000', 'swe_?bench', 'codeforces', 'evalplus', 'multiple_(py|js|java|cpp)']
+    tags: [code, coding]
+  - category: long_context
+    names: ['longbench', 'infinitebench', '(^|[_:/-])ruler', 'babilong', 'passkey', 'needle', 'niah', 'longproc', 'librusec', 'graphwalks', 'qasper', 'aa_lcr', 'loogle']
+    tags: [longcontext, long_context]
+  - category: instruction_following
+    names: ['ifeval', 'ifbench', 'alpaca_?eval', 'arena', 'mt_?bench', 'followbench', 'multi_if']
+    tags: [instructionfollowing, instruction_following]
+  - category: math
+    names: ['(^|[_:/-])(math|gsm8k|gsm|mgsm|afrimgsm|aime\d*|amc|asdiv|arithmetic|minerva_math|hrm8k|putnam|mathqa|svamp|olympiad\w*|hmmt\w*|tinygsm8k|mathvista)([_:/-]|\d|$)', 'gsm8k', 'mgsm']
+    tags: [math, math_word_problems]
+  - category: multilingual
+    names: ['^(aclue|aexams|bhs_|bec2016eu|bhtc|afri|african|flores|belebele|xnli|xcopa|xquad|xstorycloze|xwinograd|mlqa|tydiqa|global_mmlu|include|kmmlu|cmmlu|ceval|c-eval|tmlu|tmmluplus|turkishmmlu|arabicmmlu|aradice|arab|ntrex|mafand|masakhane|masakhapos|masakhanews|indic|multiblimp|eus_|kbl|translation|wmt|iwslt|tatoeba|pawsx|haerae|bertaqa|nor(?!mal)|ja_|ru_|french|darija|egy|m_mmlu|m_arc|m_hellaswag|mmmlu|salt|sib|ulqa|ulut|uleval|uhura|xlsum|xlum|polemo|assin|catalan|parafrase|icelandic|greek|bangla|click|kobest|cabbq|esbbq|evalita|noridiom|norec|nrk|hendrycks_ethics_x)', 'indic', 'multilingual']
+    tags: [multilingual]
+  - category: reasoning
+    names: ['gpqa', '(^|[_:/-])bbh', 'bigbench', 'big_bench', 'logiqa', 'logieval', 'agieval', 'musr', 'arc_agi', '(^|[_:/-])drop([_:/-]|$)', 'mastermind', 'prost', 'zebra', 'enigma', '(^|[_:/-])hle([_:/-]|$)', 'leaderboard_(bbh|musr|gpqa)', 'metabench', 'acp_']
+    tags: [reasoning]
+  - category: commonsense
+    names: ['hellaswag', 'winogrande', 'piqa', 'siqa', 'social_?iqa', '(^|[_:/-])copa([_:/-]|$)', 'openbookqa', 'commonsenseqa', 'swag', '(^|[_:/-])arc([_:/-]|$)', '(^|[_:/-])arc_(easy|challenge)', '(^|[_:/-])tinyarc', 'sciq', 'boolq', '(^|[_:/-])wsc', 'storycloze', 'commonsense', '(^|[_:/-])anli', 'mutual', '(^|[_:/-])race([_:/-]|$)', 'winogender', 'wic']
+  - category: qa
+    names: ['mmlu', 'truthfulqa', 'triviaqa', 'nq_open', 'webqs', 'trivia_?qa', 'pubmedqa', 'medqa', 'medmcqa', 'headqa', 'kormedmcqa', 'simpleqa', 'careqa', 'wmdp', 'legalbench', 'coqa', 'cmmlu', 'mmmu']
+    tags: [knowledge, multiple_choice]

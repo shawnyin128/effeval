@@ -1,0 +1,23 @@
+name: smoothquant
+title: SmoothQuant
+description: SmoothQuant scaling (s = max|x|^alpha / max|W|^(1 - alpha), folded into the two hidden-axis norm gains and the q/k/v and gate/up weights) calibrated on Pile validation documents.
+paper: {title: "SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models", arxiv: "2211.10438", official_repo: "https://github.com/mit-han-lab/smoothquant@c61476d728e42ae0d8a35e7e78494edcac3237b5"}
+# Qwen3 deviations: the official smooth_lm accepts Llama/Mistral/Mixtral norm classes only, here the same fold is applied
+# to Qwen3's RMSNorm gains; alpha is the repository default 0.5 (no value exists for Qwen3; the README's Llama values
+# are 0.8-0.9); scales are computed in float32 (the official code works in the model dtype); activation maxima are
+# collected on the model as loaded (the official generate_act_scales.py loads fp16).
+values:
+  preprocess.steps:
+    value:
+      - kind: scaling
+        calibration: {dataset: pile_val, sampling: documents, n_samples: 512, seqlen: 512, seed: 42}
+        entries:
+          - position: norm.input_layernorm.out
+            layers: all
+            mode: offline
+            source: {type: smoothquant, alpha: 0.5, weight_reduce: group_max, act_stat: absmax}
+          - position: norm.post_attention_layernorm.out
+            layers: all
+            mode: offline
+            source: {type: smoothquant, alpha: 0.5, weight_reduce: group_max, act_stat: absmax}
+    source: "code: smoothquant/smooth.py#L58-L71 (scale formula, weight maximum over the shared-input group, fold into the norm gain and fc columns), #L126-L141 (groups: input_layernorm -> q/k/v, post_attention_layernorm -> gate/up; o_proj and down_proj untouched), smoothquant/calibration.py#L13-L46 and examples/generate_act_scales.py#L31-L38 (Pile validation, 512 documents, 512 tokens, shuffle seed 42, one document per forward, running per-channel max |x|), examples/ppl_eval.py#L13 (alpha 0.5)"

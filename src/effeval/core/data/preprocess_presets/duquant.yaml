@@ -1,0 +1,69 @@
+name: duquant
+title: DuQuant
+description: DuQuant smoothing (SmoothQuant-style scales from the first consumer's weights, o_proj and down_proj included) followed by per-linear-input block rotation, zigzag permutation and a second block rotation searched on the mean calibration activations, and a block Hadamard on Q/K after RoPE, with the Qwen3 deviations listed below.
+paper: {title: "DuQuant: Distributing Outliers via Dual Transformation Makes Stronger Quantized LLMs", arxiv: "2406.01721", official_repo: "https://github.com/Hsu1023/DuQuant@d56cfc6fe97c34c0eb100fec82fe439865905679"}
+# Deviations from the official code, all intended: the rotation search runs through the transformed but not yet
+# quantized layers (effeval quantizes in a separate later stage; the official qlayer also quantizes activations while
+# propagating the search sequence); the search runs in float32 (official: float16 under autocast) with the base
+# rotation matrices built on CPU (official: CUDA) and the random orthogonal blocks drawn from one CPU generator seeded
+# with `seed` (official: the global CPU/CUDA RNG seeded once with --seed); smooth_q_k is omitted (a no-op unless
+# --smooth_epochs > 0, duquant.py#L206); head_dim comes from the model config (official raises when
+# heads * head_dim != hidden, int_llama_layer.py#L68-L72); K and V are quantized as `attn.k` / `attn.v` operands.
+values:
+  preprocess.steps:
+    value:
+      - kind: scaling
+        calibration: {dataset: wikitext2, n_samples: 128, seqlen: 2048, seed: 2}
+        entries:
+          - position: norm.input_layernorm.out
+            layers: all
+            mode: offline
+            source: {type: smoothquant, alpha: 0.6, weight_reduce: first_consumer}
+          - position: norm.post_attention_layernorm.out
+            layers: all
+            mode: offline
+            source: {type: smoothquant, alpha: 0.6, weight_reduce: first_consumer}
+          - position: linear.mlp.down_proj.input
+            layers: all
+            mode: offline
+            source: {type: smoothquant, alpha: 0.6, weight_reduce: first_consumer}
+          - position: linear.attn.o_proj.input
+            layers: all
+            mode: online
+            source: {type: smoothquant, alpha: 0.6, weight_reduce: first_consumer}
+      - kind: rotation
+        calibration: {dataset: wikitext2, n_samples: 128, seqlen: 2048, seed: 2}
+        entries:
+          - position: linear.attn.q_proj.input
+            layers: all
+            mode: online
+            source: {type: duquant, block_size: 128, max_steps: 256, permutation_times: 1, seed: 2}
+          - position: linear.attn.k_proj.input
+            layers: all
+            mode: online
+            source: {type: duquant, block_size: 128, max_steps: 256, permutation_times: 1, seed: 2}
+          - position: linear.attn.v_proj.input
+            layers: all
+            mode: online
+            source: {type: duquant, block_size: 128, max_steps: 256, permutation_times: 1, seed: 2}
+          - position: linear.attn.o_proj.input
+            layers: all
+            mode: online
+            source: {type: duquant, block_size: 128, max_steps: 256, permutation_times: 1, seed: 2}
+          - position: linear.mlp.gate_proj.input
+            layers: all
+            mode: online
+            source: {type: duquant, block_size: 128, max_steps: 256, permutation_times: 1, seed: 2}
+          - position: linear.mlp.up_proj.input
+            layers: all
+            mode: online
+            source: {type: duquant, block_size: 128, max_steps: 256, permutation_times: 1, seed: 2}
+          - position: linear.mlp.down_proj.input
+            layers: all
+            mode: online
+            source: {type: duquant, block_size: 128, max_steps: 256, permutation_times: 1, seed: 2}
+          - position: attn.qk_rope
+            layers: all
+            mode: online
+            source: {type: hadamard}
+    source: "code: generate_act_scale_shift.py#L113-L118 (act scales: wikitext2, 128 x 2048, seed 2, per-channel max |x| of every linear input), run.sh#L11 (--alpha 0.6), quantize/duquant.py#L207-L213 (scale = act^alpha / max|W|^(1-alpha) of the first consumer's weight, per linear), quantize/utils.py#L182-L199 (ln -> q/k/v and ln -> up/gate folded into the norm, up -> down folded into up_proj, o_proj divided online under GQA via models/transformation.py#L131-L134); main.py#L203-L210 (calibration wikitext2, 128 samples, --seed 2, applied to the global RNGs at main.py#L317-L318), run.sh#L4-L5 (--block_size 128 --max_rotation_step 256), main.py#L248 (permutation_times 1), quantize/quantizer.py#L279-L342 (rotation, zigzag permutation, rotation; R and permutation shared by q/k/v and by gate/up through copy_quantizers_duquant_params), quantize/int_linear.py#L56-L58 (R copied from the activation quantizer to the weights), quantize/duquant.py#L135 and #L281 (search input: mean calibration sequence propagated layer by layer), quantize/quantizer.py#L104-L105 and #L306-L311 with models/int_llama_layer.py#L130-L134 (block-128 Sylvester Hadamard on Q and K after RoPE)"

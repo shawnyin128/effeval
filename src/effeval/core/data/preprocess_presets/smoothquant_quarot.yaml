@@ -1,0 +1,45 @@
+name: smoothquant_quarot
+title: SmoothQuant + QuaRot
+description: The QuaRot rotations, then SmoothQuant scaling of the two hidden-axis norm outputs in the rotated basis (steps run in this order). A combination for Qwen3 with no reference implementation.
+paper: {title: "SmoothQuant + QuaRot (combination of the two papers' preprocessing)", arxiv: "2211.10438", official_repo: "https://github.com/mit-han-lab/smoothquant@c61476d728e42ae0d8a35e7e78494edcac3237b5 and https://github.com/spcl/QuaRot@5008669b08c1f11f9b64d52d16fddd47ca754c5a"}
+# No reference implementation (source: assumed): neither paper combines the two methods. The steps are the quarot and smoothquant presets steps in that order. The rotation step comes first because the
+# residual rotation folds the norm gains into the linears and would cancel a scaling folded into a norm gain before it. Each step has the settings of
+# its own preset (smoothquant.yaml, quarot.yaml) and the same Qwen3 deviations.
+values:
+  preprocess.steps:
+    value:
+      - kind: rotation
+        entries:
+          - position: residual
+            layers: all
+            mode: offline
+            source: {type: random_hadamard, seed: 0}
+            options: {untie_embeddings: true, center_embeddings: false}
+          - position: attn.v_head
+            layers: all
+            mode: offline
+            source: {type: hadamard}
+          - position: linear.attn.o_proj.input
+            layers: all
+            mode: online
+            source: {type: hadamard}
+          - position: linear.mlp.down_proj.input
+            layers: all
+            mode: online
+            source: {type: hadamard}
+          - position: attn.qk_rope
+            layers: all
+            mode: online
+            source: {type: hadamard}
+      - kind: scaling
+        calibration: {dataset: pile_val, sampling: documents, n_samples: 512, seqlen: 512, seed: 42}
+        entries:
+          - position: norm.input_layernorm.out
+            layers: all
+            mode: offline
+            source: {type: smoothquant, alpha: 0.5, weight_reduce: group_max, act_stat: absmax}
+          - position: norm.post_attention_layernorm.out
+            layers: all
+            mode: offline
+            source: {type: smoothquant, alpha: 0.5, weight_reduce: group_max, act_stat: absmax}
+    source: "assumed"

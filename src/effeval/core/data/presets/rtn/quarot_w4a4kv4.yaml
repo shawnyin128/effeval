@@ -1,0 +1,21 @@
+method: rtn
+name: quarot_w4a4kv4
+description: QuaRot's W4A4KV4 quantizers with round-to-nearest weights (QuaRot paper RTN setting), to be combined with the QuaRot preprocess preset.
+paper: {title: "QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs", arxiv: "2404.00456", official_repo: "https://github.com/spcl/QuaRot@5008669b08c1f11f9b64d52d16fddd47ca754c5a"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: true, granularity: per_channel, clip_search: {type: mse, grid: 100, max_shrink: 0.8, norm: 2.4}}
+      - sites: [linear.*.input]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: true, granularity: per_token, clip_ratio: 0.9}
+      - sites: [attn.k, attn.v]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_group, group_size: 128, clip_ratio: 0.95}
+    source: "code: fake_quant/utils.py#L97-L153 (symmetric weights and activations by default, --w_clip enables the mse clip search of quant_utils.py#L269-L316), README.md#L36-L40 (--a_bits 4 --v_bits 4 --k_bits 4 --w_bits 4 --w_clip); activation clip 0.9 and KV group 128 / asymmetric / clip 0.95 from paper §5 (the repository has no run script, so these are the paper's values)"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "paper §5 Table 1 (WikiText-2 perplexity)"
+# Weights, linear inputs and K/V cache are quantized; lm_head and embeddings stay 16-bit as in the official code.

@@ -1,0 +1,19 @@
+name: smoothattention
+title: SmoothAttention (QServe)
+description: QServe's SmoothAttention before the 4-bit K cache, scaling each key channel by absmax^0.5 (the two channels of a RoPE pair share one scale) with the inverse on the query side, folded offline into the q/k projections (Llama) or the q_norm/k_norm gains (Qwen3), calibrated on random-cropped Pile validation blocks. Needs the downstream KV quantizer (rtn/qserve_kv4).
+paper: {title: "QServe: W4A8KV4 Quantization and System Co-design for Efficient LLM Serving", arxiv: "2405.04532", official_repo: "https://github.com/mit-han-lab/deepcompressor@69f3473f5e1c1504bae35cc50c7858ef900a9b17"}
+# Deviations: the official code does not support QK-norm models (struct.py with_qk_norm=False), so on Qwen3 the scale is folded
+# into q_norm/k_norm gains, which are replaced by per-head gains; the key statistic is taken after RoPE at the K cache (attn.k)
+# and tied over each RoPE pair; the other QServe parts (W4A8 progressive group quantization,
+# per-head rotation of v_proj/o_proj, activation-aware channel reordering) are not part of this preset.
+values:
+  preprocess.steps:
+    value:
+      - kind: scaling
+        calibration: {dataset: pile_val, sampling: random_crop, n_samples: 128, seqlen: 1024, seed: 42}
+        entries:
+          - position: attn.qk_pre_rope
+            layers: all
+            mode: offline
+            source: {type: smoothattention, alpha: 0.5, granularity: per_head}
+    source: "paper §4.2 Eq. 7-9 (lambda_i = max(|K_i|)^alpha, alpha 0.5, RoPE pair constraint lambda_i = lambda_{i+D/2}, W_Q = Lambda W_Q, W_K = Lambda^-1 W_K); code: deepcompressor/calib/smooth.py#L1019-L1109 (smooth_attention: q_proj rows x scale, k_proj rows / scale, one scale per KV head repeated over the query group), #L319-L322 and #L373-L376 (pair max); examples/llm/configs/qoq-g128.yaml (smooth.attn alpha 0.5, AbsMax); calibration: examples/llm/configs/__default__.yaml (pile-val-backup validation, 128 samples x 1024 tokens) and app/llm/quant/dataset.py#L116-L155 (shuffle seed 42, random crop of documents longer than 1024 tokens, concatenate, cut into 1024-token blocks)"

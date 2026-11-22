@@ -1,0 +1,325 @@
+{
+ "evaluator": {
+  "capabilities": {
+   "handles": [
+    "in_process"
+   ],
+   "modes": [
+    "generation",
+    "loglikelihood"
+   ]
+  },
+  "description": "EleutherAI lm-evaluation-harness via HFLM(pretrained=<model ",
+  "library": "lm-eval",
+  "library_version": "0.4.13",
+  "name": "lm_eval",
+  "version": "2"
+ },
+ "generated_at": "2026-11-20T00:00:00+00:00",
+ "tasks": [
+  {
+   "description": "",
+   "fewshot_allowed": null,
+   "metrics": [
+    {
+     "higher_is_better": true,
+     "name": "acc",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "acc_stderr",
+     "stderr_of": "acc"
+    }
+   ],
+   "mode": "loglikelihood",
+   "name": "mmlu",
+   "num_fewshot": 0,
+   "produces": [
+    "choice_loglikelihoods",
+    "per_sample"
+   ],
+   "sample_scores": [
+    "acc",
+    "correct"
+   ],
+   "subsets": null,
+   "subtasks": [
+    "mmlu_stem"
+   ],
+   "tags": [],
+   "version": "2"
+  },
+  {
+   "description": "",
+   "fewshot_allowed": null,
+   "metrics": [
+    {
+     "higher_is_better": true,
+     "name": "acc",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "acc_stderr",
+     "stderr_of": "acc"
+    }
+   ],
+   "mode": "loglikelihood",
+   "name": "mmlu_stem",
+   "num_fewshot": 0,
+   "produces": [
+    "choice_loglikelihoods",
+    "per_sample"
+   ],
+   "sample_scores": [
+    "acc",
+    "correct"
+   ],
+   "subsets": null,
+   "subtasks": [
+    "mmlu_abstract_algebra",
+    "mmlu_anatomy"
+   ],
+   "tags": [],
+   "version": "2"
+  },
+  {
+   "description": "The following are multiple choice questions (with answers) a",
+   "fewshot_allowed": null,
+   "metrics": [
+    {
+     "higher_is_better": true,
+     "name": "acc",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "acc_stderr",
+     "stderr_of": "acc"
+    }
+   ],
+   "mode": "loglikelihood",
+   "name": "mmlu_abstract_algebra",
+   "num_fewshot": 0,
+   "produces": [
+    "choice_loglikelihoods",
+    "per_sample"
+   ],
+   "sample_scores": [
+    "acc",
+    "correct"
+   ],
+   "subsets": null,
+   "subtasks": [],
+   "tags": [
+    "mmlu_stem_tasks"
+   ],
+   "version": "1.0"
+  },
+  {
+   "description": "The following are multiple choice questions (with answers) a",
+   "fewshot_allowed": null,
+   "metrics": [
+    {
+     "higher_is_better": true,
+     "name": "acc",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "acc_stderr",
+     "stderr_of": "acc"
+    }
+   ],
+   "mode": "loglikelihood",
+   "name": "mmlu_anatomy",
+   "num_fewshot": 0,
+   "produces": [
+    "choice_loglikelihoods",
+    "per_sample"
+   ],
+   "sample_scores": [
+    "acc",
+    "correct"
+   ],
+   "subsets": null,
+   "subtasks": [],
+   "tags": [
+    "mmlu_stem_tasks"
+   ],
+   "version": "1.0"
+  },
+  {
+   "description": "",
+   "fewshot_allowed": null,
+   "metrics": [
+    {
+     "higher_is_better": true,
+     "name": "acc",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "acc_stderr",
+     "stderr_of": "acc"
+    },
+    {
+     "higher_is_better": true,
+     "name": "acc_norm",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "acc_norm_stderr",
+     "stderr_of": "acc_norm"
+    }
+   ],
+   "mode": "loglikelihood",
+   "name": "arc_challenge",
+   "num_fewshot": 0,
+   "produces": [
+    "choice_loglikelihoods",
+    "per_sample"
+   ],
+   "sample_scores": [
+    "acc",
+    "acc_norm",
+    "correct"
+   ],
+   "subsets": null,
+   "subtasks": [],
+   "tags": [
+    "ai2_arc"
+   ],
+   "version": "1.0"
+  },
+  {
+   "description": "",
+   "fewshot_allowed": null,
+   "metrics": [
+    {
+     "higher_is_better": true,
+     "name": "exact_match,strict-match",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "exact_match_stderr,strict-match",
+     "stderr_of": "exact_match,strict-match"
+    },
+    {
+     "higher_is_better": true,
+     "name": "exact_match,flexible-extract",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "exact_match_stderr,flexible-extract",
+     "stderr_of": "exact_match,flexible-extract"
+    }
+   ],
+   "mode": "generation",
+   "name": "gsm8k",
+   "num_fewshot": 5,
+   "produces": [
+    "per_sample"
+   ],
+   "sample_scores": [
+    "exact_match",
+    "correct"
+   ],
+   "subsets": null,
+   "subtasks": [],
+   "tags": [
+    "math_word_problems"
+   ],
+   "version": "3.0"
+  },
+  {
+   "description": "",
+   "fewshot_allowed": null,
+   "metrics": [
+    {
+     "higher_is_better": false,
+     "name": "word_perplexity",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "word_perplexity_stderr",
+     "stderr_of": "word_perplexity"
+    },
+    {
+     "higher_is_better": false,
+     "name": "byte_perplexity",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "byte_perplexity_stderr",
+     "stderr_of": "byte_perplexity"
+    },
+    {
+     "higher_is_better": false,
+     "name": "bits_per_byte",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "bits_per_byte_stderr",
+     "stderr_of": "bits_per_byte"
+    }
+   ],
+   "mode": "loglikelihood",
+   "name": "wikitext",
+   "num_fewshot": 0,
+   "produces": [
+    "per_sample"
+   ],
+   "sample_scores": [
+    "bits_per_byte",
+    "byte_perplexity",
+    "word_perplexity"
+   ],
+   "subsets": null,
+   "subtasks": [],
+   "tags": [],
+   "version": "2.0"
+  },
+  {
+   "description": "",
+   "fewshot_allowed": [
+    0
+   ],
+   "metrics": [
+    {
+     "higher_is_better": true,
+     "name": "exact_match",
+     "stderr_of": null
+    },
+    {
+     "higher_is_better": null,
+     "name": "exact_match_stderr",
+     "stderr_of": "exact_match"
+    }
+   ],
+   "mode": "generation",
+   "name": "aime24",
+   "num_fewshot": 0,
+   "produces": [
+    "per_sample"
+   ],
+   "sample_scores": [
+    "exact_match",
+    "correct"
+   ],
+   "subsets": null,
+   "subtasks": [],
+   "tags": [
+    "math_word_problems"
+   ],
+   "version": "0.0"
+  }
+ ]
+}

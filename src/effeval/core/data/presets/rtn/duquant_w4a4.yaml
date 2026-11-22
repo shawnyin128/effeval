@@ -1,0 +1,24 @@
+method: rtn
+name: duquant_w4a4
+description: DuQuant's W4A4 quantizers with round-to-nearest weights (no GPTQ), to be combined with the DuQuant preprocess preset.
+paper: {title: "DuQuant: Distributing Outliers via Dual Transformation Makes Stronger Quantized LLMs", arxiv: "2406.01721", official_repo: "https://github.com/Hsu1023/DuQuant@d56cfc6fe97c34c0eb100fec82fe439865905679"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_channel, clip_ratio: 0.8}
+      - sites: [linear.*.input]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_token, clip_ratio: 0.9}
+      - sites: [attn.q, attn.k]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_token, clip_ratio: 0.9}
+      - sites: [attn.v]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_token}
+    source: "code: run.sh#L7-L8 and #L13-L14 (--wbits 4 --abits 4 --lac 0.9 --swc 0.8), main.py#L352-L401 (activations hard-coded asymmetric, weights --symmetric default false; Q and K operands take the activation params including lac 0.9: duquant.py#L167-L168 sets q_quant_params and k_quant_params from act_quant_params, used by QuantMatMul at int_llama_layer.py#L93-L94 and clipped at quantizer.py#L404-L406; V keeps v_quant_params without lac, main.py#L395-L400), quantize/quantizer.py#L387-L401 (swc clips the weight range, lac the activation range; both scale min and max); attention probabilities stay 16-bit (main.py#L386-L389) so they have no rule"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "paper §5 Table 1 (WikiText-2 perplexity, seqlen 2048)"
+# Weights, linear inputs and the Q/K/V attention operands are quantized; embeddings and lm_head stay 16-bit as in the official code.

@@ -1,0 +1,21 @@
+method: rtn
+name: smoothquant_w8a8
+description: SmoothQuant's W8A8 fake quantization (per-channel weights, per-token activations, q/k/v_proj outputs quantized as the attention bmm inputs) with round-to-nearest weights, to be combined with the SmoothQuant preprocess preset.
+paper: {title: "SmoothQuant: Accurate and Efficient Post-Training Quantization for Large Language Models", arxiv: "2211.10438", official_repo: "https://github.com/mit-han-lab/smoothquant@c61476d728e42ae0d8a35e7e78494edcac3237b5"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 8, symmetric: true, granularity: per_channel}
+      - sites: [linear.*.input]
+        layers: all
+        quant: {type: int, bits: 8, symmetric: true, granularity: per_token}
+      - sites: [linear.attn.q_proj.output, linear.attn.k_proj.output, linear.attn.v_proj.output]
+        layers: all
+        quant: {type: int, bits: 8, symmetric: true, granularity: per_token}
+    source: "code: smoothquant/fake_quant.py#L7-L34 (symmetric absmax, per_channel weights, per_token activations), #L124 and #L82-L85 (8 bits hard-coded), #L183-L230 (all decoder linears; lm_head and embeddings untouched), examples/ppl_eval.py#L77-L82 (quantize_bmm_input=True: q/k/v_proj outputs quantized; on Qwen3 this is before q_norm and RoPE, the hook location of the official code)"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "code: examples/ppl_eval.py#L44-L62 (WikiText-2 test perplexity)"
+# lm_head and embeddings stay 16-bit.

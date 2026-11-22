@@ -1,0 +1,36 @@
+name: quarot
+title: QuaRot
+description: QuaRot rotations (R1 random Hadamard on the residual stream, per-head value rotation, online Hadamards before o_proj and down_proj and on Q/K after RoPE), with the Qwen3 deviations listed below.
+paper: {title: "QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs", arxiv: "2404.00456", official_repo: "https://github.com/spcl/QuaRot@5008669b08c1f11f9b64d52d16fddd47ca754c5a"}
+# Deviations from the official code, all intended: head_dim comes from the model config (the official code
+# assumes hidden // heads, which is 64 on Qwen3-0.6B whose head_dim is 128); the o_proj online op mixes
+# heads * head_dim channels; embedding rows are not mean-centred (official fuse_layer_norms centres them for every
+# model type, which changes the outputs of an RMSNorm model; options.center_embeddings: true reproduces it);
+# Hadamard products are computed in float64 instead of fast_hadamard_transform in fp16.
+values:
+  preprocess.steps:
+    value:
+      - kind: rotation
+        entries:
+          - position: residual
+            layers: all
+            mode: offline
+            source: {type: random_hadamard, seed: 0}
+            options: {untie_embeddings: true, center_embeddings: false}
+          - position: attn.v_head
+            layers: all
+            mode: offline
+            source: {type: hadamard}
+          - position: linear.attn.o_proj.input
+            layers: all
+            mode: online
+            source: {type: hadamard}
+          - position: linear.mlp.down_proj.input
+            layers: all
+            mode: online
+            source: {type: hadamard}
+          - position: attn.qk_rope
+            layers: all
+            mode: online
+            source: {type: hadamard}
+    source: "code: fake_quant/rotation_utils.py#L63-L85 (norm gains folded into the next linears), #L117-L160 and #L209-L250 (R1 on embedding, q/k/v/up/gate inputs, o/down outputs, lm_head), main.py#L19 and utils.py#L77 (random Hadamard signs come from the global seed 0), rotation_utils.py#L225-L226 (v_proj per-head Hadamard), main.py#L39-L45 (o_proj online H_heads x I, full fold offline), main.py#L33-L38 and rotation_utils.py#L173 (down_proj online Hadamard), rotation_utils.py#L267-L307 (Q/K Hadamard after RoPE)"

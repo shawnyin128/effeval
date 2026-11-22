@@ -1,0 +1,6 @@
+name: native
+version: "1"
+description: effeval's own protocols for tasks whose paper protocol no third-party framework reproduces.
+capabilities:
+  modes: [loglikelihood]
+  handles: [in_process]

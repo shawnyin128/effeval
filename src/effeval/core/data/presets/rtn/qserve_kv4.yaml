@@ -1,0 +1,14 @@
+method: rtn
+name: qserve_kv4
+description: QServe's 4-bit KV cache (asymmetric int4, group size 128) with every other tensor left in 16 bits, to be combined with the SmoothAttention preprocess preset. QServe's W4A8 progressive group quantization is not reproduced.
+paper: {title: "QServe: W4A8KV4 Quantization and System Co-design for Efficient LLM Serving", arxiv: "2405.04532", official_repo: "https://github.com/mit-han-lab/deepcompressor@69f3473f5e1c1504bae35cc50c7858ef900a9b17"}
+values:
+  method.config.rules:
+    value:
+      - sites: [attn.k, attn.v]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_group, group_size: 128}
+    source: "code: examples/llm/configs/qoq-g128.yaml (KV cache opts: uint4 with zero point, group size 128; queries are not quantized)"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "paper §5 (WikiText-2 perplexity)"

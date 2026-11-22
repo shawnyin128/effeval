@@ -1,0 +1,15 @@
+method: rtn
+name: awq_w3g128
+description: AWQ's weight-only quantizer, 3-bit asymmetric integer weights with a group size of 128 and round-to-nearest rounding, to be combined with the AWQ preprocess preset.
+paper: {title: "AWQ: Activation-aware Weight Quantization for LLM Compression and Acceleration", arxiv: "2306.00978", official_repo: "https://github.com/mit-han-lab/llm-awq@d6e797a42b9ef7778de8ee2352116e0f48a78d61"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 3, symmetric: false, granularity: per_group, group_size: 128}
+    source: "code: awq/quantize/quantizer.py#L56-L100 (pseudo_quantize_tensor: zero-point asymmetric, per-group min-max), awq/entry.py#L53 and #L113-L116 (zero_point on by default, --q_group_size 128 in the README's --w_bit 3 commands), awq/quantize/quantizer.py#L107-L122 (decoder-block linears only; lm_head and embeddings unquantized)"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "code: awq/entry.py#L296-L326 (WikiText-2 perplexity, sequence length 2048)"
+# effeval's asymmetric grid includes zero in each group's range; see the AWQ preprocess preset.

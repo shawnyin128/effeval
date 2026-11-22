@@ -1,0 +1,22 @@
+name: base
+title: Base
+version: '1'
+field: any
+runtime: hf
+entry: null
+capabilities:
+  modes: []
+  handles:
+  - in_process
+uses: []
+config_schema:
+  type: object
+  properties: {}
+  additionalProperties: false
+display: []
+default_preset: null
+custom_presets: {}
+schema_hash: sha256:99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa
+builtin: true
+description: The model as it is, with no change applied; the baseline every method is compared against.
+architectures: null

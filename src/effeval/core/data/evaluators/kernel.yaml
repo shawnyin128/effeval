@@ -1,0 +1,6 @@
+name: kernel
+version: "1"
+description: Operator benchmarks of low-bit kernels on a model's own linear shapes and weights.
+capabilities:
+  modes: [benchmark]
+  handles: [in_process]

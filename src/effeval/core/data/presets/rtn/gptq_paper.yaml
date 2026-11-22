@@ -1,0 +1,15 @@
+method: rtn
+name: gptq_paper
+description: RTN baseline as defined in the GPTQ paper (same evaluation protocol), 4-bit, on the same per-row asymmetric grid as GPTQ.
+paper: {title: "GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers", arxiv: "2210.17323v2", official_repo: "https://github.com/IST-DASLab/gptq@2d65066eeb06a5c9ff5184d8cebdf33662c67faf"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_channel}
+    source: "paper §5 Baselines: rounding all weights to the nearest value on exactly the same asymmetric per-row grid as GPTQ"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "paper §5 Table 3 with the protocol of §A.2.1"
+# The paper reports OPT/BLOOM only; no reported values apply to the supported architectures.

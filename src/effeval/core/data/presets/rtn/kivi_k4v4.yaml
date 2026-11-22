@@ -1,0 +1,26 @@
+method: rtn
+name: kivi_k4v4
+description: KIVI's 4-bit KV cache (keys asymmetric int4 per channel over groups of 32 tokens, values asymmetric int4 per token in groups of 32 features, the most recent 128 tokens in 16 bits), every other tensor left in 16 bits.
+paper: {title: "KIVI: A Tuning-Free Asymmetric 2bit Quantization for KV Cache", arxiv: "2402.02750", official_repo: "https://github.com/jy-yuan/KIVI@876b4d2d08e3b1d5f70d0969c299d8c7c42ddfb6"}
+# Deviations from the official implementation (fake quantization of the whole cache at every attention call):
+# - Prefill: KIVI attends to the exact K/V and only quantizes the cache for later decode steps; here every
+#   query of a forward pass sees the quantized K/V (all tokens but the most recent ones).
+# - The full-precision window slides: the most recent 128 tokens stay exact, keys are cut to whole groups of
+#   32 (up to 159 exact keys). KIVI keeps (T mod 128) keys (1..128 during decode) and flushes 128 at once,
+#   and keeps 128 (129 during the decode step) values.
+# - Arithmetic in float32; KIVI computes scales and offsets in float16. A constant group is reproduced
+#   exactly here, KIVI divides by a zero scale there.
+# - Not reproduced: bit packing, the fused kernels, the memory saving.
+values:
+  method.config.rules:
+    value:
+      - sites: [attn.k]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, zero_point: float, granularity: per_group, group_size: 32, group_axis: token, residual: 128}
+      - sites: [attn.v]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, zero_point: float, granularity: per_group, group_size: 32, residual: 128}
+    source: "paper §3 / §4 and code: quant/new_pack.py quant_and_pack_kcache (min-max over a group of tokens per channel), quant_and_pack_vcache (min-max over group_size features per token), models/llama_kivi.py (residual_length, group_size)"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "paper §4 (language modeling and long-context evaluation); WikiText-2 perplexity as in the other KV presets"

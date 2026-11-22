@@ -1,0 +1,27 @@
+# device_names are exact torch.cuda.get_device_name() strings; extend them when a node reports another.
+# Dense (non-sparse) peak throughput and memory bandwidth from NVIDIA datasheets. Used only for ETA priors.
+gpus:
+  - name: H100-SXM
+    aliases: ["H100", "H100-80GB"]
+    device_names: ["NVIDIA H100 80GB HBM3"]
+    memory_gb: 80
+    bf16_dense_tflops: 989.4
+    hbm_tb_per_s: 3.35
+    compute_capability: "9.0"
+    source: https://www.nvidia.com/en-us/data-center/h100/
+  - name: H200-SXM
+    aliases: ["H200"]
+    device_names: ["NVIDIA H200"]
+    memory_gb: 141
+    bf16_dense_tflops: 989.4
+    hbm_tb_per_s: 4.8
+    compute_capability: "9.0"
+    source: https://www.nvidia.com/en-us/data-center/h200/
+  - name: A100-SXM-80GB
+    aliases: ["A100", "A100-80GB"]
+    device_names: ["NVIDIA A100-SXM4-80GB"]
+    memory_gb: 80
+    bf16_dense_tflops: 312
+    hbm_tb_per_s: 2.039
+    compute_capability: "8.0"
+    source: https://www.nvidia.com/en-us/data-center/a100/

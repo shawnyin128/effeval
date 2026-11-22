@@ -1,0 +1,39 @@
+method: gptq
+name: paper_w3
+description: GPTQ paper algorithm, calibration and evaluation protocol, 3-bit per-row asymmetric weights, C4 calibration.
+paper: {title: "GPTQ: Accurate Post-Training Quantization for Generative Pre-trained Transformers", arxiv: "2210.17323v2", official_repo: "https://github.com/IST-DASLab/gptq@2d65066eeb06a5c9ff5184d8cebdf33662c67faf"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 3, symmetric: false, granularity: per_channel}
+    source: "paper §5 Setup: standard uniform per-row asymmetric quantization on the min-max grid of every linear layer in each Transformer block (code: opt.py#L77-L80 loops all decoder layers, find_layers excludes lm_head); 3-bit rows of Table 3"
+  method.config.act_order:
+    value: false
+    source: "code: opt.py#L428 --act-order is opt-in and not part of the paper"
+  method.config.static_groups:
+    value: false
+    source: "code: opt.py#L432 --static-groups is opt-in"
+  method.config.percdamp:
+    value: 0.01
+    source: "paper §4 Step 3: dampening lambda is always 1% of the average diagonal value"
+  method.config.blocksize:
+    value: 128
+    source: "paper §4 Step 2: lazy batch-updates over 128 columns at a time"
+  method.config.calibration.dataset:
+    value: c4
+    source: "paper §5 Setup: calibration data are random segments from the C4 dataset"
+  method.config.calibration.n_samples:
+    value: 128
+    source: "paper §5 Setup: 128 random 2048 token segments"
+  method.config.calibration.seqlen:
+    value: 2048
+    source: "paper §5 Setup: 128 random 2048 token segments"
+  method.config.calibration.seed:
+    value: 0
+    source: "code: opt.py#L372 --seed defaults to 0"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "paper §5 Table 3 with the protocol of §A.2.1"
+# The paper reports OPT/BLOOM only; no reported values apply to the supported architectures.

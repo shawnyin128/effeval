@@ -1,0 +1,187 @@
+/* Design tokens. Theme: sky blue, near-white and hot pink over neutral greys; tables keep their own palette. */
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --font-mono: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --sky: #0593c6;
+  --pink: #d83995;
+  --white: #fcffff;
+  --canvas: #f2f7f9;
+  --surface: #fcffff;
+  --glass: rgba(252, 255, 255, 0.62);
+  --glass-strong: rgba(252, 255, 255, 0.82);
+  --brand-gradient: linear-gradient(135deg, #0593c6 0%, #6a6fc0 52%, #d83995 100%);
+  --surface-sunken: #fafafc;
+  --fill-1: rgba(0, 0, 0, 0.035);
+  --fill-2: rgba(0, 0, 0, 0.06);
+  --fill-3: rgba(0, 0, 0, 0.09);
+  --line: rgba(0, 0, 0, 0.08);
+  --line-strong: rgba(0, 0, 0, 0.14);
+  --text-1: #1d1d1f;
+  --text-2: #6e6e73;
+  --text-3: #8e8e93;
+  --text-on-accent: #ffffff;
+
+  --accent: #0593c6;
+  --accent-hover: #0483b1;
+  --accent-fill: rgba(5, 147, 198, 0.1);
+  --accent-text: #04739b;
+  --pink-fill: rgba(216, 57, 149, 0.1);
+  --code-keyword: #b42a7a;
+  --code-name: #04739b;
+  --code-string: #1d7a52;
+  --code-number: #5b52b8;
+  --code-comment: #8e8e93;
+  --red: #d70015;
+  --red-fill: rgba(215, 0, 21, 0.07);
+  --green: #1f8a3b;
+  --green-fill: rgba(31, 138, 59, 0.08);
+  --orange: #b25000;
+  --orange-fill: rgba(178, 80, 0, 0.08);
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  /* Spacing, type and control scales: every margin, gap, padding and font size picks one of these. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 22px;
+  --control-h: 32px;
+  --control-h-sm: 28px;
+
+  --shadow-card: 0 0 0 1px var(--line), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-raised: 0 0 0 1px var(--line), 0 2px 8px rgba(0, 0, 0, 0.05);
+  --shadow-pop: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 12px 32px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06);
+  --focus-ring: 0 0 0 3px rgba(5, 147, 198, 0.24);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --sidebar-width: 236px;
+  --sidebar-bg: rgba(252, 255, 255, 0.22);
+  --sidebar-edge: rgba(255, 255, 255, 0.55);
+  --aurora-opacity: 0.32;
+  --segment-on: var(--surface);
+  --overlay: rgba(0, 0, 0, 0.28);
+  --flute-opacity: 0.5;
+  --glass-highlight: rgba(255, 255, 255, 0.7);
+
+  /* spreadsheet palette (Google Sheets look) */
+  --sheet-bg: #ffffff;
+  --sheet-grid: #e2e3e3;
+  --sheet-head-bg: #f8f9fa;
+  --sheet-head-text: #5f6368;
+  --sheet-head-active: #d3e3fd;
+  --sheet-frozen: #c4c7c5;
+  --sheet-select: #1a73e8;
+  --sheet-row-hover: #f6f8fc;
+  --sheet-row-active: #e8f0fe;
+  --sheet-text: #202124;
+  --sheet-hover-overlay: rgba(32, 33, 36, 0.035);
+  --sheet-select-overlay: rgba(26, 115, 232, 0.09);
+  --zone-line: #b8bcc2;
+  --report-baseline: #fef7e0;
+  --zone-model: #f3f6fc;
+  --zone-model-head: #e8eef9;
+  --zone-model-band: #d6e2f7;
+  --zone-model-ink: #1a4d8f;
+  --zone-config: #f7f5fc;
+  --zone-config-head: #efebf8;
+  --zone-config-band: #e2daf3;
+  --zone-config-ink: #5b3f99;
+  --zone-result: #f2faf4;
+  --zone-result-head: #e6f4ea;
+  --zone-result-band: #cfe9d7;
+  --zone-result-ink: #1e6b36;
+  --zone-provenance: transparent;
+  --zone-provenance-head: var(--sheet-head-bg);
+  --zone-provenance-band: #e9eaec;
+  --zone-provenance-ink: #5f6368;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #05090d;
+  --surface: #15191d;
+  --glass: rgba(21, 25, 29, 0.6);
+  --glass-strong: rgba(21, 25, 29, 0.84);
+  --surface-sunken: #161618;
+  --fill-1: rgba(255, 255, 255, 0.05);
+  --fill-2: rgba(255, 255, 255, 0.08);
+  --fill-3: rgba(255, 255, 255, 0.12);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --text-1: #f5f5f7;
+  --text-2: #a1a1a6;
+  --text-3: #7c7c80;
+  --accent: #1aa8dc;
+  --accent-hover: #3bb7e4;
+  --accent-fill: rgba(26, 168, 220, 0.16);
+  --accent-text: #5cc4ea;
+  --pink-fill: rgba(232, 90, 170, 0.16);
+  --code-keyword: #f07cbf;
+  --code-name: #5cc4ea;
+  --code-string: #7fd3a4;
+  --code-number: #a9a3f0;
+  --code-comment: #7c7c80;
+  --red: #ff453a;
+  --red-fill: rgba(255, 69, 58, 0.14);
+  --green: #30d158;
+  --green-fill: rgba(48, 209, 88, 0.12);
+  --orange: #ff9f0a;
+  --orange-fill: rgba(255, 159, 10, 0.12);
+  --shadow-card: 0 0 0 1px var(--line);
+  --shadow-raised: 0 0 0 1px var(--line), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 16px 40px rgba(0, 0, 0, 0.6);
+  --focus-ring: 0 0 0 3px rgba(26, 168, 220, 0.35);
+  --sidebar-bg: rgba(21, 25, 29, 0.3);
+  --sidebar-edge: rgba(255, 255, 255, 0.06);
+  --aurora-opacity: 0.22;
+  --segment-on: rgba(255, 255, 255, 0.16);
+  --overlay: rgba(0, 0, 0, 0.6);
+  --flute-opacity: 0.1;
+  --glass-highlight: rgba(255, 255, 255, 0.05);
+
+  --sheet-bg: #1c1c1e;
+  --sheet-grid: #333336;
+  --sheet-head-bg: #232326;
+  --sheet-head-text: #9aa0a6;
+  --sheet-head-active: #233a5e;
+  --sheet-frozen: #4a4a4e;
+  --sheet-select: #8ab4f8;
+  --sheet-row-hover: #242a33;
+  --sheet-row-active: #1f3049;
+  --sheet-text: #e8eaed;
+  --sheet-hover-overlay: rgba(255, 255, 255, 0.04);
+  --sheet-select-overlay: rgba(138, 180, 248, 0.14);
+  --zone-line: #55585d;
+  --report-baseline: rgba(251, 188, 4, 0.1);
+  --zone-model: rgba(66, 133, 244, 0.07);
+  --zone-model-head: rgba(66, 133, 244, 0.13);
+  --zone-model-band: rgba(66, 133, 244, 0.24);
+  --zone-model-ink: #a8c7fa;
+  --zone-config: rgba(167, 139, 250, 0.07);
+  --zone-config-head: rgba(167, 139, 250, 0.13);
+  --zone-config-band: rgba(167, 139, 250, 0.24);
+  --zone-config-ink: #d0bcff;
+  --zone-result: rgba(52, 168, 83, 0.07);
+  --zone-result-head: rgba(52, 168, 83, 0.13);
+  --zone-result-band: rgba(52, 168, 83, 0.24);
+  --zone-result-ink: #a8dab5;
+  --zone-provenance-band: rgba(255, 255, 255, 0.08);
+  --zone-provenance-ink: #9aa0a6;
+}
