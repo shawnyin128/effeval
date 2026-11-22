@@ -21,10 +21,12 @@ class Mode(str, enum.Enum):
     LOGLIKELIHOOD = "loglikelihood"
     GENERATION = "generation"
     BENCHMARK = "benchmark"
+    SPEED = "speed"
 
 
 class HandleKind(str, enum.Enum):
     IN_PROCESS = "in_process"
+    ENGINE = "engine"
 
 
 class Artifact(str, enum.Enum):
@@ -52,10 +54,22 @@ class InProcess:
     tokenizer: Any
     preprocess_applied: dict[str, Any] | None = None
     """Summary of the model preprocessing applied before the method; goes into the record's protocol."""
+    decoder: Any = None
+    """A speculative `Decoder` wrapping `model`; None for plain autoregressive decoding."""
     kind: ClassVar[HandleKind] = HandleKind.IN_PROCESS
 
 
-Handle = InProcess
+@dataclass(frozen=True)
+class EngineHandle:
+    """A client of an inference engine (vLLM, SGLang) running in a separate process."""
+
+    client: Any
+    tokenizer: Any
+    runtime: str
+    kind: ClassVar[HandleKind] = HandleKind.ENGINE
+
+
+Handle = InProcess | EngineHandle
 
 
 class Issue(BaseModel):
@@ -85,6 +99,10 @@ class Sample(BaseModel):
     prediction: Any = None
     scores: dict[str, float] = Field(default_factory=dict)
     choice_loglikelihoods: list[float] | None = None
+    output_ids: list[list[int]] | None = None
+    """Generated token ids, one list per turn, for tasks that compare outputs token by token."""
+    category: str | None = None
+    """The sample's category in its prompt set, for tasks that report metrics per category."""
 
 
 class QualityResult(BaseModel):

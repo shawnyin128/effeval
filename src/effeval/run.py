@@ -27,7 +27,7 @@ from pydantic import BaseModel
 from effeval.core import bundle as bundle_io
 from effeval.core import evaluator as evaluators
 from effeval.core.catalog import Catalog
-from effeval.core.spec import Job, Plan
+from effeval.core.spec import Job, JobSpec, Plan
 from effeval.core.types import EnvFingerprint, Fidelity, InProcess, QualityResult, Record, utc_now
 from effeval.metrics import derived
 from effeval.plan import model_group_key
@@ -119,6 +119,22 @@ def write_samples(result: QualityResult, path: Path) -> None:
     path.write_bytes(gzip.compress(lines.encode("utf-8"), mtime=0))
 
 
+def prepare_models(spec: JobSpec, catalog: Catalog) -> tuple[InProcess, dict[str, object]]:
+    """Prepare the models a job's spec calls for.
+
+    Returns the handle and the protocol entries preparation adds.
+
+    The provider and the decoding mode of the spec choose the path: speculative decoding prepares target and
+    draft together, plain decoding only the target.
+    """
+    if spec.runtime.name != "hf":
+        raise NotImplementedError(f"the {spec.runtime.name} runtime has no client yet")
+    if spec.decoding is not None:
+        handle, draft_applied = hf.prepare_speculative(spec, catalog.manifests)
+        return handle, {} if draft_applied is None else {"draft_preprocess_applied": draft_applied}
+    return hf.prepare(spec, catalog.manifests[spec.method.name]), {}
+
+
 def _groups(jobs: list[Job]) -> list[list[Job]]:
     groups: dict[str, list[Job]] = {}
     for job in jobs:
@@ -206,7 +222,9 @@ def run_plan(
             raise exc
         failed.extend(f"{job.spec.task.name} ({job.job_id}) {stage}: {exc}" for job in jobs)
 
-    def run_job(job: Job, handle: InProcess | None, attn: str | None, prepare_s: float) -> None:
+    def run_job(
+        job: Job, handle: InProcess | None, attn: str | None, prepare_s: float, prepared: dict[str, object]
+    ) -> None:
         determinism.apply(job.spec.determinism)
         beat(job, "running")
         task = catalog.tasks[job.spec.task.name]
@@ -226,6 +244,9 @@ def run_plan(
             raise
         extra = [m for m in job.spec.metrics if m not in result.metrics]
         metrics = {**result.metrics, **derived.compute(extra, result.samples)}
+        protocol = {**result.protocol, **prepared}
+        if handle is not None and handle.preprocess_applied is not None:
+            protocol["preprocess_applied"] = handle.preprocess_applied
         samples_path = workdir / "per_sample.jsonl.gz"
         write_samples(result, samples_path)
         record = Record(
@@ -237,9 +258,7 @@ def run_plan(
             compare=job.compare,
             spec=job.spec.model_dump(mode="json"),
             metrics=metrics,
-            protocol=result.protocol
-            if handle is None or handle.preprocess_applied is None
-            else {**result.protocol, "preprocess_applied": handle.preprocess_applied},
+            protocol=protocol,
             env=fingerprint(catalog, attn),
             fidelity=with_repro(job, result, catalog),
             artifacts={
@@ -267,26 +286,41 @@ def run_plan(
             log(f"[{job.role}] {job.spec.task.name}: finished in an earlier run, reusing its local result")
             store_result(saved)
             beat(job, "done", "reused local result")
+        missing = [j for j in pending if j.spec.task.name not in catalog.tasks]
+        for job in missing:
+            name = job.spec.task.name
+            give_up(
+                [job],
+                "task",
+                LookupError(
+                    f"task {name!r} is not in this machine's task catalog; a speed task needs its prompt set "
+                    "file in the directory named by EFFEVAL_PROMPT_SETS here"
+                ),
+            )
+        pending = [j for j in pending if j not in missing]
         benchmarks = [j for j in pending if catalog.tasks[j.spec.task.name].benchmark is not None]
         pending = [j for j in pending if j not in benchmarks]
         for job in benchmarks:
-            run_job(job, None, None, 0.0)
+            run_job(job, None, None, 0.0, {})
         if not pending:
             continue
         first = pending[0]
-        manifest = catalog.manifests[first.spec.method.name]
+        draft = None if first.spec.decoding is None else first.spec.decoding.draft
         determinism.apply(first.spec.determinism)
-        log(f"preparing {first.spec.model.name} with {manifest.name}")
+        log(
+            f"preparing {first.spec.model.name} with {first.spec.method.name}"
+            + ("" if draft is None else f" and draft {draft.model.name} with {draft.method.name}")
+        )
         start = time.perf_counter()
         try:
-            handle = hf.prepare(first.spec, manifest)
+            handle, prepared = prepare_models(first.spec, catalog)
         except Exception as exc:
             give_up(pending, "prepare", exc)
             continue
         prepare_s = time.perf_counter() - start
         attn = handle.model.config._attn_implementation
         for index, job in enumerate(pending):
-            run_job(job, handle, attn, prepare_s if index == 0 else 0.0)
+            run_job(job, handle, attn, prepare_s if index == 0 else 0.0, prepared)
         del handle
         gc.collect()
         if torch.cuda.is_available():

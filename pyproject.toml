@@ -38,6 +38,7 @@ evalscope = "effeval.evaluators.evalscope:EVALUATOR"
 kernel = "effeval.evaluators.kernel:EVALUATOR"
 lm_eval = "effeval.evaluators.lm_eval:EVALUATOR"
 native = "effeval.evaluators.native:EVALUATOR"
+speed = "effeval.evaluators.speed:EVALUATOR"
 
 [dependency-groups]
 dev = [
@@ -67,6 +68,7 @@ testpaths = ["tests"]
 markers = [
     "compute: needs torch/transformers (compute extra)",
     "network: downloads datasets or models",
+    "gpu: needs a CUDA device; skipped without one",
 ]
 
 [tool.importlinter]

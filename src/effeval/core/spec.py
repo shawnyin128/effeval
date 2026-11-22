@@ -45,9 +45,36 @@ class MethodRef(StrictModel):
 
 
 class RuntimeSpec(StrictModel):
-    name: Literal["hf"] = "hf"
+    name: Literal["hf", "vllm", "sglang"] = Field(
+        default="hf", description="Inference provider; hf is the transformers provider."
+    )
     attn_implementation: Literal["sdpa", "eager"] = Field(
-        default="sdpa", description="Base attention backend when no attention-internal site is quantized."
+        default="sdpa",
+        description="Base attention backend when no attention-internal site is quantized; only used by hf.",
+    )
+
+
+class RoleSpec(StrictModel):
+    """A model role besides the target, e.g. the draft of speculative decoding."""
+
+    model: ModelRef
+    method: MethodRef = Field(default_factory=lambda: MethodRef(name="base", preset=None))
+    preprocess: Preprocess | None = None
+
+    @field_validator("model", mode="before")
+    @classmethod
+    def _model_shorthand(cls, value: Any) -> Any:
+        return {"name": value} if isinstance(value, str) else value
+
+
+class DecodingSpec(StrictModel):
+    mode: Literal["autoregressive", "speculative"] = "autoregressive"
+    draft: RoleSpec | None = Field(default=None, description="The draft model; required iff speculative.")
+    num_speculative_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        le=16,
+        description="Tokens the draft proposes per round; required iff speculative.",
     )
 
 
@@ -125,6 +152,9 @@ class RunSpec(StrictModel):
     )
     field: str
     runtime: RuntimeSpec = Field(default_factory=RuntimeSpec)
+    decoding: DecodingSpec | None = Field(
+        default=None, description="How tokens are generated; omitted: plain autoregressive decoding."
+    )
     tasks: list[TaskRef] = Field(default_factory=list, description="Empty: use the preset's paper tasks.")
     evaluator: EvaluatorRef = Field(default_factory=EvaluatorRef)
     generation: GenerationSpec = Field(default_factory=GenerationSpec)
@@ -163,6 +193,19 @@ class ResolvedMethod(StrictModel):
     config: dict[str, Any]
 
 
+class ResolvedRole(StrictModel):
+    model: ResolvedModel
+    method: ResolvedMethod
+    preprocess: ResolvedPreprocess | None = None
+
+
+class ResolvedDecoding(StrictModel):
+    mode: Literal["speculative"]
+    draft: ResolvedRole
+    num_speculative_tokens: int
+    verification: Literal["greedy", "sampling"]
+
+
 class ResolvedTask(StrictModel):
     name: str
     version: str
@@ -193,6 +236,12 @@ class JobSpec(StrictModel):
     preprocess: ResolvedPreprocess | None = None
     field: str
     runtime: RuntimeSpec
+    runtime_library: str | None = Field(
+        default=None, description="Pinned engine library, e.g. vllm==0.32.0; None for hf."
+    )
+    decoding: ResolvedDecoding | None = Field(
+        default=None, description="None means autoregressive decoding."
+    )
     task: ResolvedTask
     evaluator: ResolvedEvaluator
     generation: GenerationSpec
@@ -247,29 +296,57 @@ class Plan(StrictModel):
     )
 
 
+def runtime_identity(spec: JobSpec) -> dict[str, Any]:
+    """The runtime part of a job's identity: the whole RuntimeSpec for hf, else only the provider name."""
+    if spec.runtime.name == "hf":
+        return spec.runtime.model_dump(mode="json")
+    return {"name": spec.runtime.name}
+
+
 def run_key(spec: JobSpec) -> str:
     """Identity of a job's result for comparison and reuse (architecture.md §9.1).
 
-    Quality jobs exclude hardware so results group across GPUs; benchmark jobs include it, since speed is a
-    property of the GPU. Generation parameters other than batch size only count in generation mode, since
-    loglikelihood scoring never decodes.
+    Quality jobs exclude hardware so results group across GPUs; benchmark and speed jobs include it, since
+    speed is a property of the GPU. Generation parameters other than batch size only count in generation and
+    speed modes, since loglikelihood scoring never decodes.
     """
     generation: dict[str, Any] = {"batch_size": spec.generation.batch_size}
-    if spec.task.mode == Mode.GENERATION:
+    if spec.task.mode in (Mode.GENERATION, Mode.SPEED):
         generation = spec.generation.model_dump(mode="json")
     identity = {
         "model": spec.model.model_dump(mode="json"),
         "method": {"name": spec.method.name, "version": spec.method.version, "config": spec.method.config},
-        "runtime": spec.runtime.model_dump(mode="json"),
+        "runtime": runtime_identity(spec),
         "task": spec.task.model_dump(mode="json", exclude={"params"} if not spec.task.params else None),
         "evaluator": spec.evaluator.model_dump(mode="json"),
         "generation": generation,
         "determinism": spec.determinism.model_dump(mode="json"),
     }
+    if spec.runtime_library is not None:
+        identity["runtime_library"] = spec.runtime_library
     if spec.preprocess is not None:
         identity["preprocess"] = spec.preprocess.model_dump(mode="json", include={"steps", "versions"})
+    if spec.decoding is not None:
+        identity["decoding"] = decoding_identity(spec.decoding)
     if spec.repeat:
         identity["repeat"] = spec.repeat
-    if spec.task.mode == Mode.BENCHMARK:
+    if spec.task.mode in (Mode.BENCHMARK, Mode.SPEED):
         identity["hardware"] = spec.hardware.model_dump(mode="json")
     return "rk_" + sha256_hex(canonical_json(identity))
+
+
+def decoding_identity(decoding: ResolvedDecoding) -> dict[str, Any]:
+    """The decoding part of a job identity: mode, k, verification and the draft model, method, preprocess."""
+    draft = decoding.draft
+    identity: dict[str, Any] = {
+        "model": draft.model.model_dump(mode="json"),
+        "method": {"name": draft.method.name, "version": draft.method.version, "config": draft.method.config},
+    }
+    if draft.preprocess is not None:
+        identity["preprocess"] = draft.preprocess.model_dump(mode="json", include={"steps", "versions"})
+    return {
+        "mode": decoding.mode,
+        "num_speculative_tokens": decoding.num_speculative_tokens,
+        "verification": decoding.verification,
+        "draft": identity,
+    }

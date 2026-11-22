@@ -25,3 +25,11 @@ gpus:
     hbm_tb_per_s: 2.039
     compute_capability: "8.0"
     source: https://www.nvidia.com/en-us/data-center/a100/
+  - name: RTX-A6000
+    aliases: ["A6000"]
+    device_names: ["NVIDIA RTX A6000"]
+    memory_gb: 48
+    bf16_dense_tflops: 154.8  # datasheet lists 309.7 effective TFLOPS with sparsity; dense is half
+    hbm_tb_per_s: 0.768
+    compute_capability: "8.6"
+    source: https://www.nvidia.com/content/dam/en-zz/Solutions/design-visualization/quadro-product-literature/proviz-print-nvidia-rtx-a6000-datasheet-us-nvidia-1454980-r9-web%20(1).pdf

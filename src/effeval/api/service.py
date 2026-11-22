@@ -31,6 +31,7 @@ from effeval.core.catalog import (
     model_code,
     task_defs_from_listing,
 )
+from effeval.core.engines import ENGINES
 from effeval.core.fragments import FRAGMENTS
 from effeval.core.graph import positions
 from effeval.core.listing import TaskListing
@@ -51,6 +52,7 @@ from effeval.core.preprocess import (
     preprocess_title,
     resolve_preprocess,
 )
+from effeval.core.promptsets import user_set_stamp
 from effeval.core.spec import Job, JobSpec, Plan, RunSpec, run_key
 from effeval.core.types import Fidelity, Issue, Record, Sample, Severity, SubmittedVia, Visibility, utc_now
 from effeval.metrics import derived
@@ -78,8 +80,9 @@ class ServiceError(Exception):
 
 _LISTED: dict[str, tuple[str, tuple[EvaluatorDef, dict[str, TaskDef]]]] = {}
 """Converted task listing by evaluator as (digest, conversion); only the latest digest is kept."""
-_DESCRIBED_TASKS: dict[tuple[tuple[str, str], ...], dict[str, Any]] = {}
-"""The describe `tasks` payload by the digests of the stored listings; only the latest is kept."""
+_DESCRIBED_TASKS: dict[tuple[Any, ...], dict[str, Any]] = {}
+"""The describe `tasks` payload by the digests of the stored listings and the user prompt set files; only
+the latest is kept."""
 
 
 def _listed(store: SqliteStore) -> list[tuple[EvaluatorDef, dict[str, TaskDef]]]:
@@ -109,7 +112,7 @@ def catalog_for(store: SqliteStore, viewer: str | None) -> Catalog:
 
 
 def _described_tasks(store: SqliteStore, catalog: Catalog) -> dict[str, Any]:
-    key = tuple(sorted(store.task_listing_digests().items()))
+    key = (tuple(sorted(store.task_listing_digests().items())), user_set_stamp())
     if key not in _DESCRIBED_TASKS:
         _DESCRIBED_TASKS.clear()
         _DESCRIBED_TASKS[key] = {n: t.model_dump(mode="json") for n, t in catalog.tasks.items()}
@@ -170,8 +173,38 @@ def _preprocess_sources() -> dict[str, dict[str, Any]]:
     return out
 
 
+def _runtimes() -> dict[str, dict[str, Any]]:
+    """Inference providers by RunSpec `runtime.name`: UI label, pinned library, whether this host runs it.
+
+    transformers is always available; an engine is available when its environment variable names an
+    existing Python executable.
+    """
+    out: dict[str, dict[str, Any]] = {"hf": {"label": "transformers", "library": None, "available": True}}
+    for name, engine in ENGINES.items():
+        python = os.environ.get(engine.python_env)
+        out[name] = {
+            "label": {"vllm": "vLLM", "sglang": "SGLang"}[name],
+            "library": engine.library,
+            "python_env": engine.python_env,
+            "available": bool(python) and os.path.exists(python),
+        }
+    return out
+
+
+def _field_roles(field: Any) -> list[dict[str, str]]:
+    """The model roles a Field evaluates: the target (`model`), plus a draft (`decoding.draft.model`) when
+    the Field's reference job overrides `decoding`, i.e. the Field compares decoding schemes."""
+    roles = [{"name": "target", "path": "model"}]
+    if "decoding" in field.reference:
+        roles.append({"name": "draft", "path": "decoding.draft.model"})
+    return roles
+
+
 def describe(store: SqliteStore, viewer: str | None) -> dict[str, Any]:
     """Everything a UI form or an agent needs: schemas, methods, presets, tasks, fields, evaluators, GPUs.
+
+    `runtimes` lists the inference providers and whether this host has each engine configured;
+    `fields[name].roles` lists the model roles (path of each model in the RunSpec) a Field needs.
 
     `architectures[name].graph` is the effective layer graph; `models[code].positions` is the preprocessing
     position table of the model's shape (`core.graph.positions`); `preprocess_presets` and
@@ -194,9 +227,12 @@ def describe(store: SqliteStore, viewer: str | None) -> dict[str, Any]:
         "tasks": _described_tasks(store, catalog),
         "task_catalogs": store.task_listing_summaries(),
         "common_tasks": [n for n in catalog.common_tasks if n in catalog.tasks],
-        "fields": {n: f.model_dump(mode="json") for n, f in catalog.fields.items()},
+        "fields": {
+            n: {**f.model_dump(mode="json"), "roles": _field_roles(f)} for n, f in catalog.fields.items()
+        },
         "evaluators": {n: e.model_dump(mode="json") for n, e in catalog.evaluators.items()},
         "gpus": {n: g.model_dump(mode="json") for n, g in catalog.gpus.items()},
+        "runtimes": _runtimes(),
         "comparative_metrics": {n: c.description for n, c in COMPARATIVE.items()},
         "models": {code: model_view(m) for code, m in catalog.models.items()},
         "architectures": {
@@ -617,11 +653,25 @@ def _reported_metrics(record: Record) -> dict[str, str]:
     return {k: v for k, v in record.metrics.items() if k not in asked}
 
 
+def decoding_columns(spec: dict[str, Any]) -> dict[str, Any]:
+    """The decoding config columns of a frozen job spec: `draft` (model code or None), `decoding`
+    ({"k", "verification"} or None for autoregressive) and `runtime` (the provider name)."""
+    decoding = spec.get("decoding")
+    return {
+        "draft": None if decoding is None else decoding["draft"]["model"]["name"],
+        "decoding": None
+        if decoding is None
+        else {"k": decoding["num_speculative_tokens"], "verification": decoding["verification"]},
+        "runtime": spec.get("runtime", {}).get("name", "hf"),
+    }
+
+
 def row(store: SqliteStore, catalog: Catalog, record: Record, viewer: str | None = None) -> dict[str, Any]:
     """Flat table row: fixed columns plus the full record for detail views and path filters.
 
     `label` is the display name "<preprocess title>[*] + <method title>" ("QuaRot + GPTQ"), the method title
     without preprocessing; `preprocess` is the frozen preprocess or None, `display["preprocess"]` its title.
+    Decoding is not part of the label: `draft`, `decoding` and `runtime` are separate config columns.
 
     `state` is "active", "redo" or "trashed"; `problems` lists why the row may be invalid ("redo",
     "trashed", "retracted", "reference_trashed"); `projects` lists the viewer's projects that link the record.
@@ -650,6 +700,7 @@ def row(store: SqliteStore, catalog: Catalog, record: Record, viewer: str | None
         "preset": spec.get("method", {}).get("preset"),
         "preprocess": None if preprocess is None else preprocess.model_dump(mode="json"),
         "label": preprocess_label(preprocess, _method_title(catalog, spec.get("method", {}).get("name"))),
+        **decoding_columns(spec),
         "task": spec.get("task", {}).get("name"),
         "mode": spec.get("task", {}).get("mode"),
         "evaluator": spec.get("evaluator", {}).get("name"),
@@ -1004,6 +1055,10 @@ class TableRow(BaseModel):
         default=None,
         description="Model preprocessing: a preset name or a RunSpec `preprocess` ({preset?, steps?}).",
     )
+    decoding: dict[str, Any] | None = Field(
+        default=None,
+        description="A RunSpec `decoding` ({mode, draft, num_speculative_tokens}) merged over shared.",
+    )
 
 
 class ExperimentTable(BaseModel):
@@ -1042,6 +1097,8 @@ def _freeze_row(
     }
     if row.preprocess is not None:
         top["preprocess"] = _preprocess_dict(row.preprocess)
+    if row.decoding is not None:
+        top["decoding"] = row.decoding
     raw = _merged(table.shared, top)
     if "preprocess" in raw:
         raw["preprocess"] = _preprocess_dict(raw["preprocess"])
@@ -1062,6 +1119,7 @@ def _add_references(baselines: dict[str, dict[str, Any]], plan: Plan, catalog: C
                 "title": _job_display(catalog, job),
                 "method": {"name": job.spec.method.name},
                 "preprocess": None,
+                **decoding_columns(job.spec.model_dump(mode="json")),
                 "baseline": True,
                 "issues": [],
                 "jobs": {},
@@ -1092,6 +1150,7 @@ def _table_jobs(table: ExperimentTable, catalog: Catalog, owner: str) -> list[di
                 "title": "",
                 "method": row_def.method,
                 "preprocess": row_def.preprocess,
+                **decoding_columns({}),
                 "baseline": False,
                 "issues": [],
                 "jobs": {},
@@ -1116,6 +1175,8 @@ def _table_jobs(table: ExperimentTable, catalog: Catalog, owner: str) -> list[di
                     if job.role == "main":
                         row["jobs"].setdefault(job.spec.task.name, []).append(job)
             planned = next((j for runs in row["jobs"].values() for j in runs), None)
+            if planned is not None:
+                row.update(decoding_columns(planned.spec.model_dump(mode="json")))
             method = row_def.method.get("name", "?")
             row["title"] = (
                 _method_title(catalog, method) if planned is None else _job_display(catalog, planned)
@@ -1451,14 +1512,14 @@ def freeze_table(store: SqliteStore, actor: Actor, project: str, table_id: str) 
     """Store the table exactly as it is now: per cell its record, reference record, values and comparisons.
 
     It also keeps, per column, the task's primary metric and category as they are now, plus the metric
-    display definitions, averages and categories in use, so its exports never change with the catalog.
+    display definitions, averages and categories in use, so its exports never change with the catalog. A task
+    the catalog no longer has (e.g. a removed user prompt set) gets no column and is listed in
+    `missing_tasks`; its cells stay as `_table_view` marks them.
     """
     _member_project(store, actor.username, project)
     view = _table_view(store, actor, project, _stored_table(store, project, table_id))
     catalog = task_catalog(store)
-    unknown_tasks = sorted(t for t in view["tasks"] if t not in catalog.tasks)
-    if unknown_tasks:
-        raise ServiceError(409, f"table references unknown tasks {unknown_tasks}")
+    view["missing_tasks"] = sorted(t for t in view["tasks"] if t not in catalog.tasks)
     used: set[str] = set()
     for block in view["blocks"]:
         for row in block["rows"]:
@@ -1470,6 +1531,8 @@ def freeze_table(store: SqliteStore, actor: Actor, project: str, table_id: str) 
                     used.update(cell["metrics"])
     view["columns"] = []
     for task_name in view["tasks"]:
+        if task_name in view["missing_tasks"]:
+            continue
         task = catalog.tasks[task_name]
         category = catalog.categories[task.category]
         used.add(task.metrics[0].name)

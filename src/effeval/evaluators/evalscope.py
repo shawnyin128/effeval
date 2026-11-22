@@ -30,6 +30,7 @@ from effeval.evaluators._evalscope_format import (
     metrics_from_reviews,
     review_files,
 )
+from effeval.runtime.speculative.adapter import GenerateProxy, decoding_metrics, decoding_stats
 
 MODEL_NAME = "effeval_model"
 
@@ -123,8 +124,11 @@ class EvalScope:
         }
         if job.generation.temperature is not None:
             generation["temperature"] = job.generation.temperature
+        proxy = (
+            None if handle.decoder is None else GenerateProxy(handle.decoder, handle.model, handle.tokenizer)
+        )
         config = TaskConfig(
-            model=InProcessModelAPI(handle.model, handle.tokenizer),
+            model=InProcessModelAPI(handle.model if proxy is None else proxy, handle.tokenizer),
             model_id=MODEL_NAME,
             datasets=[benchmark],
             dataset_args={benchmark: dataset_args},
@@ -147,22 +151,23 @@ class EvalScope:
         ]
         primary = task.metrics[0].name
         metrics, samples = metrics_from_reviews(reviews, primary, "correct" in task.sample_scores)
+        protocol = {
+            "backend": "evalscope",
+            "backend_version": evalscope.__version__,
+            "library": f"evalscope=={importlib.metadata.version('evalscope')}",
+            "task": benchmark,
+            "subsets": task.subsets,
+            "metric": primary,
+            "num_fewshot": job.task.num_fewshot,
+            "aggregate": "micro mean of per-sample scores recomputed from review files",
+            "batch_composition": "dynamic: EvalScope groups requests that arrive within 2 s; "
+            "deterministic only with batch_size 1",
+        }
+        if proxy is not None:
+            metrics.update(decoding_metrics(proxy.stats))
+            protocol["decoding_stats"] = decoding_stats(proxy.stats)
         return QualityResult(
-            metrics=metrics,
-            samples=samples,
-            protocol={
-                "backend": "evalscope",
-                "backend_version": evalscope.__version__,
-                "library": f"evalscope=={importlib.metadata.version('evalscope')}",
-                "task": benchmark,
-                "subsets": task.subsets,
-                "metric": primary,
-                "num_fewshot": job.task.num_fewshot,
-                "aggregate": "micro mean of per-sample scores recomputed from review files",
-                "batch_composition": "dynamic: EvalScope groups requests that arrive within 2 s; "
-                "deterministic only with batch_size 1",
-            },
-            produces=task.produces[Mode.GENERATION],
+            metrics=metrics, samples=samples, protocol=protocol, produces=task.produces[Mode.GENERATION]
         )
 
 

@@ -48,9 +48,13 @@ def _roofline(
     flops = gpu.bf16_dense_tflops * 1e12 * PREFILL_MFU * gpu_count(job)
     bandwidth = gpu.hbm_tb_per_s * 1e12 * DECODE_BW_EFFICIENCY * gpu_count(job)
 
+    draft = spec.decoding.draft if spec.decoding is not None else None
+    draft_params = catalog.models[draft.model.name].params if draft is not None else 0.0
+    draft_bytes = draft_params * (4 if draft is not None and draft.model.dtype == "float32" else 2)
+
     prepare = 0.0
     if first_in_group:
-        prepare = weight_bytes / (LOAD_GB_PER_S * 1e9)
+        prepare = (weight_bytes + draft_bytes) / (LOAD_GB_PER_S * 1e9)
         calibration = spec.method.config.get("calibration")
         if spec.method.name == "gptq" and isinstance(calibration, dict):
             tokens = calibration["n_samples"] * calibration["seqlen"]
@@ -66,11 +70,15 @@ def _roofline(
         samples = size.samples if limit is None else min(size.samples, limit * size.subtasks)
     if spec.task.mode == Mode.LOGLIKELIHOOD:
         measure = 2 * params * samples * size.choices * size.prompt_tokens / flops
-    elif spec.task.mode == Mode.GENERATION:
-        prefill = 2 * params * samples * size.prompt_tokens / flops
+    elif spec.task.mode in (Mode.GENERATION, Mode.SPEED):
+        prefill = 2 * (params + draft_params) * samples * size.prompt_tokens / flops
         output = min(size.output_tokens, spec.generation.max_new_tokens)
         steps = samples * output / spec.generation.batch_size
-        measure = prefill + steps * weight_bytes / bandwidth
+        round_bytes = weight_bytes
+        if spec.decoding is not None:
+            # worst case: every round accepts nothing, so a round yields one token but runs k draft steps
+            round_bytes += spec.decoding.num_speculative_tokens * draft_bytes
+        measure = prefill + steps * round_bytes / bandwidth
     else:
         raise ValueError(f"unsupported mode {spec.task.mode!r}")
     return prepare, measure
@@ -104,6 +112,7 @@ def estimate(plan: Plan, catalog: Catalog, history: History | None) -> Estimate:
             basis = (
                 f"roofline prior: {params:.3g} params, {PREFILL_MFU:.0%} of peak FLOPs, "
                 f"{DECODE_BW_EFFICIENCY:.0%} of HBM bandwidth (assumed)"
+                + (", speculative decoding at one token per round (upper bound)" if job.spec.decoding else "")
                 if measure is not None
                 else f"no size prior for {job.spec.task.name}; measured history only"
             )

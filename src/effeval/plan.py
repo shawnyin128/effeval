@@ -6,18 +6,23 @@ import copy
 import uuid
 from typing import Any
 
+from effeval.core.canonical import canonical_json
 from effeval.core.catalog import DEFAULT_SAMPLING_TEMPERATURE, Catalog, builtin_catalog
+from effeval.core.engines import ENGINES
 from effeval.core.preprocess import resolve_preprocess
 from effeval.core.spec import (
     GenerationSpec,
     Job,
     JobSpec,
     Plan,
+    ResolvedDecoding,
     ResolvedEvaluator,
     ResolvedMethod,
+    ResolvedRole,
     ResolvedTask,
     ReusedJob,
     run_key,
+    runtime_identity,
 )
 from effeval.core.types import Artifact, Deviation, Fidelity, Issue, Severity, utc_now
 from effeval.metrics.quality import COMPARATIVE, why_not_applicable
@@ -80,6 +85,29 @@ def _task_generation(run: GenerationSpec, task_plan: Any) -> GenerationSpec:
     return run.model_copy(update=update)
 
 
+def _resolved_decoding(res: Resolution, generation: GenerationSpec) -> ResolvedDecoding | None:
+    """The frozen decoding of a speculative run; None for autoregressive decoding."""
+    decoding = res.spec.decoding
+    if decoding is None or decoding.mode != "speculative":
+        return None
+    draft = decoding.draft
+    return ResolvedDecoding(
+        mode="speculative",
+        draft=ResolvedRole(
+            model=res.draft_model,
+            method=ResolvedMethod(
+                name=draft.method.name,
+                version=res.draft_manifest.version,
+                preset=None,
+                config=draft.method.config,
+            ),
+            preprocess=None if draft.preprocess is None else resolve_preprocess(draft.preprocess),
+        ),
+        num_speculative_tokens=decoding.num_speculative_tokens,
+        verification="sampling" if generation.do_sample else "greedy",
+    )
+
+
 def _main_jobs(res: Resolution) -> list[tuple[JobSpec, Any]]:
     """One (job, its task plan) per task and run.
 
@@ -95,6 +123,7 @@ def _main_jobs(res: Resolution) -> list[tuple[JobSpec, Any]]:
     jobs = []
     for task_plan in res.tasks:
         for seed, repeat in runs:
+            generation = _task_generation(spec.generation, task_plan)
             job = JobSpec(
                 model=res.model,
                 method=ResolvedMethod(
@@ -106,6 +135,8 @@ def _main_jobs(res: Resolution) -> list[tuple[JobSpec, Any]]:
                 preprocess=None if spec.preprocess is None else resolve_preprocess(spec.preprocess),
                 field=spec.field,
                 runtime=spec.runtime,
+                runtime_library=None if spec.runtime.name == "hf" else ENGINES[spec.runtime.name].library,
+                decoding=_resolved_decoding(res, generation),
                 task=ResolvedTask(
                     name=task_plan.task.name,
                     version=task_plan.task.version,
@@ -122,7 +153,7 @@ def _main_jobs(res: Resolution) -> list[tuple[JobSpec, Any]]:
                     else f"{task_plan.evaluator.library}=={task_plan.evaluator.library_version}",
                     passthrough=spec.evaluator.passthrough.get(task_plan.evaluator.name, {}),
                 ),
-                generation=_task_generation(spec.generation, task_plan),
+                generation=generation,
                 determinism=spec.determinism.model_copy(update={"seed": seed}),
                 hardware=spec.hardware,
                 metrics=job_metrics(task_plan.task, task_plan.produces, spec.metrics),
@@ -177,6 +208,17 @@ def freeze(
                 if referenced
                 else []
             )
+            if main.generation.do_sample and "output_match" in compare:
+                compare.remove("output_match")
+                issues.append(
+                    Issue(
+                        code="compare.output_match_dropped",
+                        severity=Severity.INFO,
+                        paths=["generation.do_sample"],
+                        message=f"output_match is not computed for {main.task.name}: sampled outputs "
+                        "are not expected to match the reference's",
+                    )
+                )
             key = run_key(main)
             reference = _reference_of(main, res, catalog) if referenced else None
             ref_key = None if reference is None else run_key(reference)
@@ -276,20 +318,32 @@ def _assemble(
         reused=reused,
         notes=[i for i in issues if i.severity != Severity.ERROR],
         manifests={
-            job.spec.method.name: catalog.manifests[job.spec.method.name]
+            name: catalog.manifests[name]
             for job in jobs
-            if not catalog.manifests[job.spec.method.name].builtin
+            for name in _method_names(job.spec)
+            if not catalog.manifests[name].builtin
         },
         models={
-            job.spec.model.name: catalog.models[job.spec.model.name]
+            name: catalog.models[name]
             for job in jobs
-            if job.spec.model.name not in builtin_catalog().models
+            for name in _model_names(job.spec)
+            if name not in builtin_catalog().models
         },
         listings={
             name: catalog.listing_for(name, sorted(used))
             for name, used in _listed_tasks_used(jobs, catalog).items()
         },
     )
+
+
+def _method_names(spec: JobSpec) -> list[str]:
+    """The methods of a job's target and, when speculative, of its draft."""
+    return [spec.method.name] + ([] if spec.decoding is None else [spec.decoding.draft.method.name])
+
+
+def _model_names(spec: JobSpec) -> list[str]:
+    """The models of a job: its target and, when speculative, its draft."""
+    return [spec.model.name] + ([] if spec.decoding is None else [spec.decoding.draft.model.name])
 
 
 def _listed_tasks_used(jobs: list[Job], catalog: Catalog) -> dict[str, set[str]]:
@@ -351,9 +405,19 @@ def plan_for_jobs(
 def model_group_key(job: Job) -> str:
     """Jobs with the same model-preparation config share one prepared model on the compute node."""
     spec = job.spec
-    key = f"{spec.model.model_dump_json()}|{spec.method.model_dump_json()}|{spec.runtime.model_dump_json()}"
+    if spec.runtime.name == "hf":
+        runtime = spec.runtime.model_dump_json()
+    else:
+        runtime = canonical_json(runtime_identity(spec))
+    key = f"{spec.model.model_dump_json()}|{spec.method.model_dump_json()}|{runtime}"
     if spec.preprocess is not None:
         key += f"|{spec.preprocess.model_dump_json(include={'steps', 'versions'})}"
+    if spec.decoding is not None:
+        draft = spec.decoding.draft
+        key += f"|decoding:{draft.model.model_dump_json()}|{draft.method.model_dump_json()}"
+        if draft.preprocess is not None:
+            key += f"|{draft.preprocess.model_dump_json(include={'steps', 'versions'})}"
+        key += f"|{spec.decoding.num_speculative_tokens}|{spec.decoding.verification}"
     return key
 
 

@@ -1,7 +1,14 @@
 import pytest
 
 from catalogs import CATALOG, LISTINGS, raw_listing
-from effeval.core.catalog import TaskDef, TaskMetric, _check_task, builtin_catalog, sample_count
+from effeval.core.catalog import (
+    TaskDef,
+    TaskMetric,
+    _check_task,
+    _static_catalog,
+    builtin_catalog,
+    sample_count,
+)
 from effeval.core.listing import TaskListing
 
 BUILTIN = builtin_catalog()
@@ -167,7 +174,7 @@ def test_listings_fixture_is_applied_to_both_evaluators():
 def test_shipped_snapshot_loads():
     import time
 
-    builtin_catalog.cache_clear()
+    _static_catalog.cache_clear()
     start = time.perf_counter()
     catalog = builtin_catalog()
     elapsed = time.perf_counter() - start
@@ -195,18 +202,18 @@ def test_shipped_snapshot_loads():
 
 def test_common_tasks_are_a_subset_of_the_catalog_in_the_fixture_catalog():
     assert "lm_eval/mmlu" in CATALOG.common_tasks
-
-@pytest.mark.parametrize(
-    ("limit", "total", "expected"),
-    [(None, 10, 10), (3, 10, 3), (30, 10, 10), (0.25, 10, 3), (0.5, 10, 5), (0.01, 10, 1), (0.999, 10, 10)],
-)
-def test_sample_count_rounds_a_fraction_up(limit, total, expected):
-    assert sample_count(limit, total) == expected
-
-
-def test_limit_schema_lets_agents_see_that_a_fraction_is_accepted():
-    for name in ("native/wikitext2_ppl", "lm_eval/mmlu"):
-        task = CATALOG.tasks[name]
-        limit = task.params_schema["properties"]["limit"]
-        assert {"integer", "number"} <= {option["type"] for option in limit["anyOf"]}
-        assert "fraction" in limit["description"]
+
+@pytest.mark.parametrize(
+    ("limit", "total", "expected"),
+    [(None, 10, 10), (3, 10, 3), (30, 10, 10), (0.25, 10, 3), (0.5, 10, 5), (0.01, 10, 1), (0.999, 10, 10)],
+)
+def test_sample_count_rounds_a_fraction_up(limit, total, expected):
+    assert sample_count(limit, total) == expected
+
+
+def test_limit_schema_lets_agents_see_that_a_fraction_is_accepted():
+    for name in ("native/wikitext2_ppl", "lm_eval/mmlu"):
+        task = CATALOG.tasks[name]
+        limit = task.params_schema["properties"]["limit"]
+        assert {"integer", "number"} <= {option["type"] for option in limit["anyOf"]}
+        assert "fraction" in limit["description"]

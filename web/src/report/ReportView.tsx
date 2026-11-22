@@ -214,7 +214,7 @@ function ReportBlock({ block: full, project, colored, showOwners, onOpenRecord, 
               {block.fields.filter((f) => block.varying.has(f.id)).map((f) => (
                 <label key={f.id} className="pick">
                   <Checkbox checked={selected.includes(f.id)} onChange={(v) => choose(f.id, v)} />
-                  <span>{f.label}</span><span className="faint tiny mono path">{f.virtual && f.id.startsWith("quant.") ? t("from rules") : f.path}</span>
+                  <span>{f.translate ? t(f.label) : f.label}</span><span className="faint tiny mono path">{f.virtual && f.id.startsWith("quant.") ? t("from rules") : f.path}</span>
                 </label>
               ))}
               {block.fields.some((f) => block.varying.has(f.id)) && block.fields.some((f) => !block.varying.has(f.id)) && <div className="menu-sep" />}
@@ -222,7 +222,7 @@ function ReportBlock({ block: full, project, colored, showOwners, onOpenRecord, 
               {block.fields.filter((f) => !block.varying.has(f.id)).map((f) => (
                 <label key={f.id} className="pick muted">
                   <Checkbox checked={selected.includes(f.id)} onChange={(v) => choose(f.id, v)} />
-                  <span>{f.label}</span><span className="faint tiny mono path">{f.virtual && f.id.startsWith("quant.") ? t("from rules") : f.path}</span>
+                  <span>{f.translate ? t(f.label) : f.label}</span><span className="faint tiny mono path">{f.virtual && f.id.startsWith("quant.") ? t("from rules") : f.path}</span>
                 </label>
               ))}
               <div className="menu-sep" />
@@ -249,7 +249,7 @@ function ReportBlock({ block: full, project, colored, showOwners, onOpenRecord, 
                   onChange={(v) => setPicked(v ? new Set(block.rows.map((r) => r.key)) : new Set())} />
               </th>
               <th rowSpan={2} className="z-config">{t("Method")}</th>
-              {fields.map((f) => <th key={f.id} rowSpan={2} className="z-config" title={f.path}>{f.id === SAMPLES_FIELD.id ? t(f.label) : f.label}</th>)}
+              {fields.map((f) => <th key={f.id} rowSpan={2} className="z-config" title={f.path}>{f.id === SAMPLES_FIELD.id || f.translate ? t(f.label) : f.label}</th>)}
               <th rowSpan={2} className="z-config">{t("Extra")}</th>
               {showOwners && <th rowSpan={2} className="z-config">{t("Uploaded by")}</th>}
               {block.metricGroups.map((g) => (

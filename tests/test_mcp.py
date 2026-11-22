@@ -349,3 +349,42 @@ def test_save_table_with_a_quarot_gptq_row_gives_a_pending_cell_with_its_label(m
     started = call("run_table", project="paper-a", table_id=table["table_id"]).structured_content
     assert started["started"] is True
     assert "preset: quarot" in (spawner.calls[0][1]["cwd"] / "run.sh").read_text()
+
+
+def test_guide_explains_speculative_decoding_and_describe_lists_the_runtimes(mcp):
+    call, *_ = mcp
+    from effeval.mcp_server import GUIDE
+
+    words = ("speculative_decoding", "num_speculative_tokens", "runtimes", "vllm", "sglang")
+    assert all(w in GUIDE for w in words)
+    runtimes = call("describe").structured_content["runtimes"]
+    assert list(runtimes) == ["hf", "vllm", "sglang"] and runtimes["hf"]["available"] is True
+
+
+def test_save_table_takes_a_decoding_per_row_and_exposes_draft_and_k_as_columns(mcp, monkeypatch):
+    from effeval.core.types import Artifact
+    from effeval.metrics.quality import COMPARATIVE, Comparative
+
+    for name in ("speedup", "output_match"):
+        monkeypatch.setitem(
+            COMPARATIVE,
+            name,
+            Comparative(name, frozenset({Artifact.PER_SAMPLE}), frozenset(), "stand-in", lambda *_: {}),
+        )
+    call, *_ = mcp
+    call("create_project", name="spec")
+    decoding = {"mode": "speculative", "draft": {"model": "qwen3-0.6b"}, "num_speculative_tokens": 2}
+    table = call(
+        "save_table",
+        project="spec",
+        table={
+            "name": "draft sweep",
+            "field": "speculative_decoding",
+            "models": ["qwen3-8b"],
+            "tasks": ["lm_eval/gsm8k"],
+            "rows": [{"label": "0.6B draft", "method": {"name": "base"}, "decoding": decoding}],
+        },
+    ).structured_content
+    rows = {r["key"]: r for r in table["blocks"][0]["rows"]}
+    assert rows["row0"]["draft"] == "qwen3-0.6b" and rows["row0"]["decoding"]["k"] == 2
+    assert rows["row0"]["label"] == "0.6B draft" and rows["base0"]["draft"] is None

@@ -56,6 +56,17 @@ says which kind x mode is valid at each position and why not.
 The quantizer stays the method. Example "QuaRot + GPTQ W4A4KV4": save_table rows
 [{"label": "QuaRot + GPTQ W4A4KV4", "preprocess": "quarot",
 "method": {"name": "gptq", "config": {<W4A4KV4 rules>}}}].
+Speculative decoding: use field "speculative_decoding". A RunSpec takes "decoding": {"mode": "speculative",
+"draft": {"model": <model code>}, "num_speculative_tokens": k} (the target is the top-level "model"; the draft
+and k, 1 to 16, are required, and the draft must share the target's vocabulary) and "runtime": {"name": "hf" |
+"vllm" | "sglang"} for the provider (hf = transformers). describe's "runtimes" says which providers this host
+can run (vllm and sglang need their own Python configured); those two run only speed tasks
+(speed/<prompt set>: speed/spec_bench, or a user JSONL prompt set as speed/<name>; find them with
+search_tasks). Timed (speed) tasks need "hardware": {"gpu": ...} and "generation": {"batch_size": 1}.
+Each job is compared with plain
+autoregressive decoding of the same target on the same provider, which runs as its reference. A table row
+takes "decoding" like a RunSpec; the draft model, k and provider are config columns of rows and records
+("draft", "decoding", "runtime"), not part of the method label.
 """
 
 DESCRIPTION_CHARS = 160

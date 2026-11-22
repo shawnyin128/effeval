@@ -1058,6 +1058,26 @@ def test_snapshot_body_does_not_follow_later_catalog_changes(server, monkeypatch
     assert again["body"]["metrics"]["ppl"]["format"] == {"style": "fixed", "decimals": 2}
 
 
+def test_a_table_may_name_a_task_the_catalog_no_longer_has_and_can_still_be_frozen(server):
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    alice.post("/api/projects", json={"name": "p"}).raise_for_status()
+    gone = "speed/removed_set"  # e.g. a user prompt set whose file was deleted after the table was saved
+    view = alice.post("/api/projects/p/tables", json={**TABLE, "tasks": ["native/wikitext2_ppl", gone]})
+    view.raise_for_status()
+    rows = {r["label"]: r for r in view.json()["blocks"][0]["rows"]}
+    assert rows["RTN"]["cells"][gone]["status"] == "invalid"
+    assert alice.get("/api/projects/p/tables").json()[0]["counts"]["invalid"] >= 2
+
+    snap = alice.post(f"/api/projects/p/tables/{view.json()['table_id']}/snapshots")
+    assert snap.status_code == 200
+    body = snap.json()["body"]
+    assert body["missing_tasks"] == [gone]
+    assert [c["task"] for c in body["columns"]] == ["native/wikitext2_ppl"]
+    frozen_rows = {r["label"]: r for r in body["blocks"][0]["rows"]}
+    assert frozen_rows["RTN"]["cells"][gone]["status"] == "invalid"
+
+
 def test_runs_have_titles_link_their_results_and_can_be_removed(server):
     _app, _admin, as_user = server
     alice, bob = as_user("alice"), as_user("bob")
@@ -1538,3 +1558,119 @@ def test_table_rows_take_a_preprocess_and_are_labelled_with_it(server):
     assert (rows["row2"]["label"], rows["row2"]["title"], rows["row2"]["preprocess"]) == ("RTN", "RTN", None)
     assert rows["base0"]["title"] == "Base" and rows["base0"]["preprocess"] is None
     assert rows["row0"]["cells"]["native/wikitext2_ppl"]["status"] == "pending"
+
+
+SPECULATIVE_SPEC = {
+    "model": {"name": "qwen3-8b"},
+    "method": {"name": "base"},
+    "field": "speculative_decoding",
+    "tasks": [{"name": "lm_eval/gsm8k"}],
+    "decoding": {"mode": "speculative", "draft": {"model": "qwen3-0.6b"}, "num_speculative_tokens": 4},
+}
+
+
+@pytest.fixture
+def speed_comparatives(monkeypatch):
+    """The speed comparatives are implemented elsewhere; the field names them, so register stand-ins."""
+    from effeval.metrics.quality import COMPARATIVE, Comparative
+
+    for name in ("speedup", "output_match"):
+        monkeypatch.setitem(
+            COMPARATIVE,
+            name,
+            Comparative(name, frozenset({Artifact.PER_SAMPLE}), frozenset(), "stand-in", lambda *_: {}),
+        )
+
+
+def test_table_rows_take_a_decoding_shown_as_config_columns_not_in_the_label(server, speed_comparatives):
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    alice.post("/api/projects", json={"name": "p"}).raise_for_status()
+
+    def decoding(k):
+        return {"mode": "speculative", "draft": {"model": "qwen3-0.6b"}, "num_speculative_tokens": k}
+
+    view = alice.post(
+        "/api/projects/p/tables",
+        json={
+            "name": "spec",
+            "field": "speculative_decoding",
+            "models": ["qwen3-8b"],
+            "tasks": ["lm_eval/gsm8k"],
+            "rows": [
+                {"label": "draft k=2", "method": {"name": "base"}, "decoding": decoding(2)},
+                {"label": "draft k=4", "method": {"name": "base"}, "decoding": decoding(4)},
+            ],
+        },
+    )
+    assert view.status_code == 200, view.text
+    rows = {r["key"]: r for r in view.json()["blocks"][0]["rows"]}
+    assert sorted(rows) == ["base0", "row0", "row1"]
+    keys = {r["cells"]["lm_eval/gsm8k"]["run_key"] for r in rows.values()}
+    assert len(keys) == 3
+    assert (rows["base0"]["draft"], rows["base0"]["decoding"], rows["base0"]["runtime"]) == (None, None, "hf")
+    assert rows["row0"]["draft"] == rows["row1"]["draft"] == "qwen3-0.6b"
+    assert [rows[k]["decoding"] for k in ("row0", "row1")] == [
+        {"k": 2, "verification": "greedy"},
+        {"k": 4, "verification": "greedy"},
+    ]
+    assert rows["row0"]["runtime"] == "hf"
+    unlabelled = alice.post(
+        "/api/projects/p/tables",
+        json={
+            "name": "spec2",
+            "field": "speculative_decoding",
+            "models": ["qwen3-8b"],
+            "tasks": ["lm_eval/gsm8k"],
+            "rows": [{"method": {"name": "base"}, "decoding": decoding(3)}],
+        },
+    ).json()
+    row = next(r for r in unlabelled["blocks"][0]["rows"] if r["key"] == "row0")
+    assert "qwen3-0.6b" not in row["label"] and "k=" not in row["label"] and row["decoding"]["k"] == 3
+
+
+def test_records_carry_the_draft_k_and_provider_outside_the_label(server, speed_comparatives):
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    plan = alice.post("/api/render", json={"spec": SPECULATIVE_SPEC}).json()["plan"]
+    main = next(j for j in plan["jobs"] if j["role"] == "main")
+    reference = next(j for j in plan["jobs"] if j["role"] == "reference")
+    records = [job_record(main, "s1", {"n": "1"}), job_record(reference, "s2", {"n": "2"})]
+    assert push_to(alice, "private", *records).status_code == 200
+    rows = {r["record_id"]: r for r in alice.get("/api/records?scope=mine").json()}
+    assert rows["rec_s1"]["draft"] == "qwen3-0.6b"
+    assert rows["rec_s1"]["decoding"] == {"k": 4, "verification": "greedy"}
+    assert rows["rec_s1"]["runtime"] == "hf" and rows["rec_s1"]["label"] == "Base"
+    assert (rows["rec_s2"]["draft"], rows["rec_s2"]["decoding"]) == (None, None)
+    drafted = alice.get("/api/records?scope=mine&draft=qwen3-0.6b").json()
+    assert [r["record_id"] for r in drafted] == ["rec_s1"]
+
+
+def test_describe_lists_the_runtimes_and_whether_an_engine_python_exists(server, monkeypatch, tmp_path):
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    monkeypatch.delenv("EFFEVAL_VLLM_PYTHON", raising=False)
+    monkeypatch.setenv("EFFEVAL_SGLANG_PYTHON", str(tmp_path / "missing" / "python"))
+    runtimes = alice.get("/api/describe").json()["runtimes"]
+    assert [(n, r["label"]) for n, r in runtimes.items()] == [
+        ("hf", "transformers"),
+        ("vllm", "vLLM"),
+        ("sglang", "SGLang"),
+    ]
+    assert [r["available"] for r in runtimes.values()] == [True, False, False]
+    python = tmp_path / "python"
+    python.write_text("")
+    monkeypatch.setenv("EFFEVAL_VLLM_PYTHON", str(python))
+    runtimes = alice.get("/api/describe").json()["runtimes"]
+    assert runtimes["vllm"]["available"] is True and runtimes["vllm"]["library"].startswith("vllm==")
+    assert runtimes["sglang"]["available"] is False
+
+
+def test_describe_fields_list_their_model_roles(server):
+    _app, _admin, as_user = server
+    fields = as_user("alice").get("/api/describe").json()["fields"]
+    assert fields["quantization"]["roles"] == [{"name": "target", "path": "model"}]
+    assert fields["speculative_decoding"]["roles"] == [
+        {"name": "target", "path": "model"},
+        {"name": "draft", "path": "decoding.draft.model"},
+    ]

@@ -43,7 +43,7 @@ from effeval.core.preprocess import (
     source_position_problem,
 )
 from effeval.core.spec import DEFAULT_PRESET, ResolvedModel, RunSpec
-from effeval.core.types import Artifact, Deviation, Fidelity, Issue, Mode, Severity
+from effeval.core.types import Artifact, Deviation, Fidelity, HandleKind, Issue, Mode, Severity
 from effeval.metrics.derived import DERIVED, applicable
 from effeval.metrics.quality import COMPARATIVE, why_not_applicable
 
@@ -75,6 +75,8 @@ class Resolution:
     spec: RunSpec | None = None
     model: ResolvedModel | None = None
     model_entry: ModelEntry | None = None
+    draft_model: ResolvedModel | None = None
+    draft_manifest: MethodManifest | None = None
     architecture: ArchitectureDef | None = None
     manifest: MethodManifest | None = None
     field_def: FieldDef | None = None
@@ -387,9 +389,21 @@ def _task_settings(
 
 
 def _evaluator_for(
-    task: TaskDef, mode: Mode, manifest: MethodManifest, catalog: Catalog, res: Resolution, index: int
+    task: TaskDef,
+    mode: Mode,
+    manifest: MethodManifest,
+    catalog: Catalog,
+    res: Resolution,
+    index: int,
+    runtime: str,
 ) -> EvaluatorDef | None:
-    """The task's evaluator if it can score `mode` on models of `manifest`; otherwise records the error."""
+    """The task's evaluator if it can score `mode` under `runtime` on models of `manifest`.
+
+    Otherwise records the error.
+
+    On an engine runtime the model is not a handle produced by the method, so the evaluator must take engine
+    handles instead.
+    """
     evaluator = catalog.evaluators[task.evaluator]
     path = f"tasks[{index}]"
     if mode not in evaluator.capabilities.modes:
@@ -399,7 +413,22 @@ def _evaluator_for(
             [f"{path}.mode"],
         )
         return None
-    if not (manifest.capabilities.handles & evaluator.capabilities.handles):
+    if runtime != "hf":
+        if evaluator.name != "speed":
+            res.error(
+                "runtime.task_unsupported",
+                f"{runtime} only runs speed tasks, not {task.name!r}",
+                [f"{path}.name", "runtime.name"],
+            )
+            return None
+        if HandleKind.ENGINE not in evaluator.capabilities.handles:
+            res.error(
+                "handle.unsupported",
+                f"{evaluator.name} cannot run on the {runtime} engine",
+                [f"{path}.name", "runtime.name"],
+            )
+            return None
+    elif not (manifest.capabilities.handles & evaluator.capabilities.handles):
         res.error(
             "handle.unsupported",
             f"{evaluator.name} cannot run models produced by {manifest.name!r}",
@@ -562,6 +591,153 @@ def _check_preprocess(
                     res.error("preprocess.hadamard_size", problem, [f"{path}.source"])
 
 
+def _resolved_model(entry: ModelEntry, dtype: str | None) -> ResolvedModel:
+    return ResolvedModel(
+        name=entry.code,
+        checkpoint=entry.checkpoint,
+        revision=entry.revision,
+        architecture=entry.architecture,
+        dtype=dtype or entry.dtype,
+    )
+
+
+def _check_decoding(
+    raw: dict[str, Any], spec: RunSpec, entry: ModelEntry, catalog: Catalog, res: Resolution
+) -> None:
+    """Rules of `decoding`, the draft role, the runtime provider and the timed (speed) mode."""
+    decoding = spec.decoding
+    speculative = decoding is not None and decoding.mode == "speculative"
+    if decoding is not None and not speculative:
+        given = {"draft": decoding.draft, "num_speculative_tokens": decoding.num_speculative_tokens}
+        for name, value in given.items():
+            if value is not None:
+                res.error(
+                    "decoding.ineffective",
+                    f"decoding.{name} has no effect: decoding.mode is autoregressive",
+                    [f"decoding.{name}"],
+                    hint="set decoding.mode to speculative, or remove it",
+                )
+    if speculative:
+        _check_speculative(spec, entry, catalog, res)
+
+    timed = any(p.mode == Mode.SPEED for p in res.tasks)
+    if timed and spec.hardware.gpu is None:
+        res.error(
+            "speed.hardware_required",
+            "speed tasks are only meaningful on a known GPU",
+            ["hardware.gpu"],
+            hint=f"set hardware.gpu to one of {sorted(catalog.gpus)}",
+        )
+    if (speculative or timed) and spec.generation.batch_size != 1:
+        res.error(
+            "decoding.batch_size",
+            f"speculative and speed runs decode one sequence at a time, got batch_size "
+            f"{spec.generation.batch_size}",
+            ["generation.batch_size"],
+        )
+    if spec.runtime.name != "hf":
+        _check_engine_runtime(raw, spec, catalog, res)
+
+
+def _check_speculative(spec: RunSpec, entry: ModelEntry, catalog: Catalog, res: Resolution) -> None:
+    decoding = spec.decoding
+    if decoding.draft is None:
+        res.error("decoding.draft_required", "speculative decoding needs a draft model", ["decoding.draft"])
+    if decoding.num_speculative_tokens is None:
+        res.error(
+            "decoding.k_required",
+            "speculative decoding needs num_speculative_tokens",
+            ["decoding.num_speculative_tokens"],
+            hint="the best value depends on the draft; there is no default",
+        )
+    if spec.field != "speculative_decoding":
+        res.error(
+            "decoding.field_required",
+            "speculative decoding is evaluated in the speculative_decoding field",
+            ["field", "decoding.mode"],
+        )
+    for index, plan in enumerate(res.tasks):
+        if plan.mode == Mode.LOGLIKELIHOOD:
+            res.error(
+                "decoding.no_effect",
+                f"{plan.task.name} is scored by loglikelihood and never decodes, "
+                "so speculative decoding has no effect",
+                [f"tasks[{index}]", "decoding.mode"],
+            )
+            continue
+        if spec.generation.do_sample if plan.do_sample is None else plan.do_sample:
+            res.error(
+                "decoding.sampling_unavailable",
+                "speculative sampling is not available yet; only greedy verification is",
+                ["generation.do_sample", f"tasks[{index}].params.do_sample"],
+                hint="use do_sample false",
+            )
+    draft = decoding.draft
+    if draft is None:
+        return
+    draft_entry = catalog.models.get(draft.model.name)
+    if draft_entry is not None:
+        res.draft_model = _resolved_model(draft_entry, draft.model.dtype)
+    res.draft_manifest = catalog.manifests.get(draft.method.name)
+    if draft_entry is None:
+        res.error(
+            "decoding.draft_unknown_model",
+            f"unknown draft model code {draft.model.name!r}",
+            ["decoding.draft.model.name"],
+            hint="register it once with `effeval model add <checkpoint>`",
+        )
+    elif entry.shape is None or draft_entry.shape is None:
+        res.error(
+            "decoding.vocab_mismatch",
+            "cannot check that draft and target share a vocabulary: a model entry has no shape",
+            ["decoding.draft.model.name", "model.name"],
+        )
+    elif entry.shape.vocab != draft_entry.shape.vocab:
+        res.error(
+            "decoding.vocab_mismatch",
+            f"draft {draft_entry.code} has vocab {draft_entry.shape.vocab}, "
+            f"target {entry.code} has {entry.shape.vocab}",
+            ["decoding.draft.model.name", "model.name"],
+        )
+    if draft.method.name not in catalog.manifests:
+        res.error(
+            "method.unknown",
+            f"unknown draft method {draft.method.name!r}",
+            ["decoding.draft.method.name"],
+            hint=f"known methods: {sorted(catalog.manifests)}",
+        )
+    elif draft.method.name != "base" or draft.preprocess is not None:
+        res.error(
+            "decoding.draft_method_later",
+            "methods and preprocessing on the draft model are not supported yet: "
+            "the draft runs as a base model",
+            ["decoding.draft.method", "decoding.draft.preprocess"],
+        )
+
+
+def _check_engine_runtime(raw: dict[str, Any], spec: RunSpec, catalog: Catalog, res: Resolution) -> None:
+    """vLLM and SGLang load plain checkpoints: no PyTorch-hook methods, no transformers settings."""
+    runtime = spec.runtime.name
+    if isinstance(raw.get("runtime"), dict) and "attn_implementation" in raw["runtime"]:
+        res.error(
+            "runtime.attn_unsupported",
+            f"runtime.attn_implementation only applies to the hf runtime, not {runtime}",
+            ["runtime.attn_implementation"],
+        )
+    roles = [("", spec.method.name, spec.preprocess)]
+    if spec.decoding is not None and spec.decoding.draft is not None:
+        draft = spec.decoding.draft
+        roles.append(("decoding.draft.", draft.method.name, draft.preprocess))
+    for prefix, method, preprocess in roles:
+        manifest = catalog.manifests.get(method)
+        if (manifest is not None and manifest.entry is not None) or preprocess is not None:
+            res.error(
+                "runtime.method_unsupported",
+                f"methods run as PyTorch hooks in the transformers runtime; {runtime} cannot run them",
+                [f"{prefix}method", f"{prefix}preprocess"],
+            )
+
+
 def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
     """Resolve one RunSpec document (no sweep). Never raises for user errors; they become Issues."""
     res = Resolution()
@@ -631,13 +807,7 @@ def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
         return res
     architecture = catalog.architectures[entry.architecture]
     res.model_entry, res.architecture = entry, architecture
-    res.model = ResolvedModel(
-        name=entry.code,
-        checkpoint=entry.checkpoint,
-        revision=entry.revision,
-        architecture=entry.architecture,
-        dtype=spec.model.dtype or entry.dtype,
-    )
+    res.model = _resolved_model(entry, spec.model.dtype)
     if entry.revision is None:
         res.issues.append(
             Issue(
@@ -701,7 +871,7 @@ def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
         settings = _task_settings(task, ref.params, index, res)
         if settings is None:
             continue
-        evaluator = _evaluator_for(task, mode, manifest, catalog, res, index)
+        evaluator = _evaluator_for(task, mode, manifest, catalog, res, index, spec.runtime.name)
         if evaluator is not None:
             res.tasks.append(
                 TaskPlan(
@@ -735,6 +905,11 @@ def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
                 f"field {field_def.name!r} requires generation.{key} = {required!r}",
                 [f"generation.{key}"],
             )
+    given_generation = merged.get("generation") if isinstance(merged.get("generation"), dict) else {}
+    defaults = {k: v for k, v in field_def.generation.items() if k not in given_generation}
+    if defaults:
+        spec = res.spec = spec.model_copy(update={"generation": spec.generation.model_copy(update=defaults)})
+    _check_decoding(raw, spec, entry, catalog, res)
 
     if spec.hardware.gpu is not None and catalog.gpu(spec.hardware.gpu) is None:
         res.error(

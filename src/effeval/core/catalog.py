@@ -467,6 +467,16 @@ class Catalog(StrictModel):
             _check_task(task, result)
         return result
 
+    def with_tasks(self, tasks: list[TaskDef]) -> Catalog:
+        """Return a catalog that also has `tasks`. Raises ValueError on a name clash or an invalid task."""
+        clash = sorted(task.name for task in tasks if task.name in self.tasks)
+        if clash:
+            raise ValueError(f"tasks {clash} already exist in the catalog")
+        result = self.model_copy(update={"tasks": {**self.tasks, **{t.name: t for t in tasks}}})
+        for task in tasks:
+            _check_task(task, result)
+        return result
+
     def listing_for(self, evaluator: str, names: list[str]) -> TaskListing:
         """A listing of `evaluator` holding just the tasks `names` and, transitively, their subtasks."""
         info = self.evaluators[evaluator]
@@ -556,9 +566,27 @@ def _load_dir(package: str) -> list[dict[str, Any]]:
     return docs
 
 
-@functools.lru_cache(maxsize=1)
 def builtin_catalog() -> Catalog:
-    """Load the catalog shipped with the package. Raises pydantic.ValidationError on malformed data files."""
+    """The catalog shipped with the package plus a task `speed/<name>` for each user prompt set.
+
+    User sets are rescanned on every call (cached while their files are unchanged). Raises
+    pydantic.ValidationError on malformed data files and ValueError on a misnamed user set file.
+    """
+    from effeval.core.promptsets import user_set_stamp
+
+    stamp = user_set_stamp()
+    return _static_catalog() if not stamp else _with_user_sets(stamp)
+
+
+@functools.lru_cache(maxsize=1)
+def _with_user_sets(stamp: tuple[tuple[str, int, int], ...]) -> Catalog:
+    from effeval.core.benchmarks.speed import user_tasks
+
+    return _static_catalog().with_tasks(user_tasks())
+
+
+@functools.lru_cache(maxsize=1)
+def _static_catalog() -> Catalog:
     base = "effeval.core.data"
     presets: dict[str, dict[str, PresetDef]] = {}
     for method_dir in sorted(resources.files(f"{base}.presets").iterdir(), key=lambda p: p.name):

@@ -206,12 +206,14 @@ export interface Describe {
   methods: Record<string, Manifest>;
   presets: Record<string, Record<string, Preset>>;
   tasks: Record<string, TaskDef>;
-  fields: Record<string, { name: string; description: string; modes: string[]; compare: string[] }>;
+  fields: Record<string, { name: string; description: string; modes: string[]; compare: string[]; roles?: { name: string; path: string }[] }>;
   evaluators: Record<string, EvaluatorDef>;
   /** Tasks pinned at the top of the task picker. */
   common_tasks: string[];
   task_catalogs: { evaluator: string; library_version: string | null; tasks: number; uploaded_by: string; created_at: string }[];
   gpus: Record<string, { name: string; aliases: string[] }>;
+  /** Inference providers by RunSpec `runtime.name`; `available` is whether this machine can run it. */
+  runtimes?: Record<string, { label: string; library: string | null; available: boolean }>;
   comparative_metrics: Record<string, string>;
   models: Record<string, ModelEntry>;
   architectures: Record<string, Architecture>;
@@ -254,6 +256,10 @@ export interface Row {
   label?: string;
   preprocess?: { preset: string | null; steps: PreprocessStep[]; versions: Record<string, string> } | null;
   preset: string | null;
+  /** Speculative decoding config columns: the draft model code, its tokens per step and verification, the provider. */
+  draft?: string | null;
+  decoding?: { k: number; verification: "greedy" | "sampling" } | null;
+  runtime?: string;
   task: string;
   mode: string;
   evaluator: string;
@@ -356,7 +362,7 @@ export interface TableDefinition {
   field: string;
   models: string[];
   tasks: (string | TaskRef)[];
-  rows: { label: string; method: { name: string; preset?: string | null; config?: Record<string, unknown> }; preprocess?: PreprocessSpec | string | null }[];
+  rows: { label: string; method: { name: string; preset?: string | null; config?: Record<string, unknown> }; preprocess?: PreprocessSpec | string | null; decoding?: Record<string, unknown> | null }[];
   shared: Record<string, unknown>;
 }
 
@@ -366,7 +372,7 @@ export interface TableView {
   updated_at: string;
   definition: TableDefinition;
   tasks: string[];
-  blocks: { model: string; rows: { key: string; label: string; title?: string; method: TableDefinition["rows"][number]["method"]; baseline: boolean; issues: Issue[]; cells: Record<string, Cell> }[] }[];
+  blocks: { model: string; rows: { key: string; label: string; title?: string; method: TableDefinition["rows"][number]["method"]; draft?: string | null; decoding?: { k: number; verification: string } | null; runtime?: string; baseline: boolean; issues: Issue[]; cells: Record<string, Cell> }[] }[];
   counts: Partial<Record<CellStatus, number>>;
   /** Frozen per-column definitions; only snapshots carry them. */
   columns?: { task: string; metric: string; category: string; band: string; order: number }[];

@@ -84,6 +84,9 @@ COMPARATIVE: dict[str, Comparative] = {
 }
 
 
+from effeval.metrics import speed  # noqa: E402,F401  (registers the speed comparatives in COMPARATIVE)
+
+
 def why_not_applicable(name: str, produces: frozenset[Artifact], sample_scores: list[str]) -> str | None:
     """Reason `name` cannot be computed for a task, or None if it can. Raises KeyError for unknown metrics."""
     metric = COMPARATIVE[name]

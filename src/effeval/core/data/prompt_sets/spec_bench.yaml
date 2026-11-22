@@ -1,0 +1,16 @@
+# Deviations from the Spec-Bench protocol that remain (also in the speed evaluator's protocol output):
+# the model's own chat template instead of the vicuna one; the run's dtype instead of float16; deterministic
+# algorithms on and TF32 off; a fixed num_speculative_tokens k instead of the HF assisted-generation schedule;
+# output match by token-id equality over all turns instead of answer text.
+name: spec_bench
+version: "1"
+description: "Spec-Bench: 480 questions (MT-bench, translation, summarization, qa, math reasoning, rag), commit fd2c1cd."
+samples: 480
+categories: 6
+download:
+  url: https://raw.githubusercontent.com/hemingkx/Spec-Bench/fd2c1cd7d2201ef71db4c5f4e455008f017967bf/data/spec_bench/question.jsonl
+  commit: fd2c1cd7d2201ef71db4c5f4e455008f017967bf
+  sha256: 4b6d33e79484f9841c487ee87d1cf6aa8c6066f61d5d482ff09e5a007fafdf04
+  cache: specbench/fd2c1cd7/question.jsonl
+  records_sha256: "3f1c18c2248e415758c5c3c1280dcbe919ee893d3ac71fa38ce4e18d63664d4f"
+converter: spec_bench

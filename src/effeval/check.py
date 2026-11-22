@@ -14,7 +14,7 @@ from transformers import AutoConfig
 from effeval.core import evaluator as evaluators
 from effeval.core.catalog import Catalog
 from effeval.core.fragments import QuantRule
-from effeval.core.spec import Plan
+from effeval.core.spec import JobSpec, Plan, ResolvedMethod, ResolvedModel
 from effeval.core.types import Issue, Severity
 from effeval.ops import introspect, sites
 from effeval.runtime import hf
@@ -46,6 +46,14 @@ def _kernel_issues(name: str) -> list[Issue]:
             )
         ]
     return []
+
+
+def _roles(job_spec: JobSpec) -> list[tuple[ResolvedModel, ResolvedMethod]]:
+    """The (model, method) of every role the job loads: the target, then the draft if there is one."""
+    roles = [(job_spec.model, job_spec.method)]
+    if job_spec.decoding is not None:
+        roles.append((job_spec.decoding.draft.model, job_spec.decoding.draft.method))
+    return roles
 
 
 def check(plan: Plan, catalog: Catalog) -> list[Issue]:
@@ -109,76 +117,87 @@ def check(plan: Plan, catalog: Catalog) -> list[Issue]:
 
     seen: set[tuple[str, str | None, str]] = set()
     for job in plan.jobs:
-        key = (job.spec.model.name, job.spec.model.revision, job.spec.method.model_dump_json())
-        if key in seen:
-            continue
-        seen.add(key)
-        manifest = catalog.manifests[job.spec.method.name]
-        if manifest.entry is not None:
-            try:
-                hf.method_function(manifest)
-            except hf.ManifestMismatch as exc:
-                issues.append(_error("method.manifest_mismatch", str(exc)))
-            except (ImportError, AttributeError, ValueError) as exc:
-                issues.append(
-                    _error(
-                        "method.entry_unavailable",
-                        f"cannot import {manifest.entry}: {exc}",
-                        hint="install the method's package on this node",
-                    )
-                )
-        config = AutoConfig.from_pretrained(job.spec.model.checkpoint, revision=job.spec.model.revision)
-        live = introspect.extract_architecture(config, source=job.spec.model.checkpoint)
-        if live.name != job.spec.model.architecture:
+        for model, method in _roles(job.spec):
+            issues.extend(_role_issues(model, method, seen, catalog, device, visible))
+    return issues
+
+
+def _role_issues(
+    model: ResolvedModel,
+    method: ResolvedMethod,
+    seen: set[tuple[str, str | None, str]],
+    catalog: Catalog,
+    device: str | None,
+    visible: int,
+) -> list[Issue]:
+    """Manifest, architecture, memory and site checks of one (model, method) role, once per pair."""
+    issues: list[Issue] = []
+    key = (model.name, model.revision, method.model_dump_json())
+    if key in seen:
+        return issues
+    seen.add(key)
+    manifest = catalog.manifests[method.name]
+    if manifest.entry is not None:
+        try:
+            hf.method_function(manifest)
+        except hf.ManifestMismatch as exc:
+            issues.append(_error("method.manifest_mismatch", str(exc)))
+        except (ImportError, AttributeError, ValueError) as exc:
             issues.append(
                 _error(
-                    "model.architecture_mismatch",
-                    f"{job.spec.model.name} is registered as {job.spec.model.architecture} but its "
-                    f"checkpoint builds {live.name}",
+                    "method.entry_unavailable",
+                    f"cannot import {manifest.entry}: {exc}",
+                    hint="install the method's package on this node",
                 )
             )
-            continue
-        stored = catalog.architectures[live.name]
-        if live.model_dump(exclude={"extracted_with"}) != stored.model_dump(exclude={"extracted_with"}):
-            issues.append(
-                _error(
-                    "architecture.layout_changed",
-                    f"transformers {live.extracted_with['transformers']} lays out {live.name} "
-                    f"differently from the stored table (extracted with "
-                    f"{stored.extracted_with['transformers']})",
-                    hint="re-extract with `effeval arch extract` and review the diff",
-                )
+    config = AutoConfig.from_pretrained(model.checkpoint, revision=model.revision)
+    live = introspect.extract_architecture(config, source=model.checkpoint)
+    if live.name != model.architecture:
+        issues.append(
+            _error(
+                "model.architecture_mismatch",
+                f"{model.name} is registered as {model.architecture} but its checkpoint builds {live.name}",
             )
-            continue
-        model = introspect.meta_model(config)
-        weight_bytes = catalog.models[job.spec.model.name].params * (
-            4 if job.spec.model.dtype == "float32" else 2
         )
-        if device is not None:
-            free = sum(torch.cuda.mem_get_info(i)[0] for i in range(visible))
-            if weight_bytes > MEMORY_HEADROOM * free:
-                issues.append(
-                    _error(
-                        "memory.insufficient",
-                        f"{job.spec.model.name} weights need "
-                        f"{weight_bytes / 2**30:.1f} GiB, {free / 2**30:.1f} GiB free",
-                    )
+        return issues
+    stored = catalog.architectures[live.name]
+    if live.model_dump(exclude={"extracted_with"}) != stored.model_dump(exclude={"extracted_with"}):
+        issues.append(
+            _error(
+                "architecture.layout_changed",
+                f"transformers {live.extracted_with['transformers']} lays out {live.name} "
+                f"differently from the stored table (extracted with "
+                f"{stored.extracted_with['transformers']})",
+                hint="re-extract with `effeval arch extract` and review the diff",
+            )
+        )
+        return issues
+    meta = introspect.meta_model(config)
+    weight_bytes = catalog.models[model.name].params * (4 if model.dtype == "float32" else 2)
+    if device is not None:
+        free = sum(torch.cuda.mem_get_info(i)[0] for i in range(visible))
+        if weight_bytes > MEMORY_HEADROOM * free:
+            issues.append(
+                _error(
+                    "memory.insufficient",
+                    f"{model.name} weights need {weight_bytes / 2**30:.1f} GiB, {free / 2**30:.1f} GiB free",
                 )
-        if "quant_rules" in manifest.uses:
-            rules = [QuantRule.model_validate(r) for r in job.spec.method.config["rules"]]
-            try:
-                _, hits = sites.resolve(model, rules)
-            except (sites.SiteError, ValueError) as exc:
-                issues.append(_error("site.unmatched", str(exc)))
-                continue
-            for hit in hits:
-                layers = f"layers {hit.layers}" if hit.layers else "lm_head"
-                issues.append(
-                    Issue(
-                        code="site.hits",
-                        severity=Severity.INFO,
-                        message=f"{manifest.name} rule {hit.rule}: {hit.locations} locations, "
-                        f"{layers}, sites {hit.sites}",
-                    )
+            )
+    if "quant_rules" in manifest.uses:
+        rules = [QuantRule.model_validate(r) for r in method.config["rules"]]
+        try:
+            _, hits = sites.resolve(meta, rules)
+        except (sites.SiteError, ValueError) as exc:
+            issues.append(_error("site.unmatched", str(exc)))
+            return issues
+        for hit in hits:
+            layers = f"layers {hit.layers}" if hit.layers else "lm_head"
+            issues.append(
+                Issue(
+                    code="site.hits",
+                    severity=Severity.INFO,
+                    message=f"{manifest.name} rule {hit.rule}: {hit.locations} locations, "
+                    f"{layers}, sites {hit.sites}",
                 )
+            )
     return issues

@@ -1,0 +1,6 @@
+name: speculative_decoding
+description: Speculative decoding with an independent draft model. Compared against autoregressive decoding of the same target on the same provider.
+modes: [generation, speed]
+reference: {decoding: null}
+generation: {batch_size: 1}
+compare: [speedup, output_match, multi_turn_prompt_match, flip_rate]

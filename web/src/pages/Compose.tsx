@@ -8,6 +8,7 @@ import { DestinationSelect, useDestination } from "./Projects";
 import { useT } from "../i18n";
 import { ModelPicker } from "../components/ModelPicker";
 import { MethodConfig, effectiveRules, hasFieldConfig, isRulesPath, normalizePath, problemAt, ruleSentence, type Problems } from "../compose/MethodConfig";
+import { Decoding, dropIncompatibleDraft, draftChoices, getIn, providerLabel, rolesOf, usesDecoding } from "../compose/Decoding";
 import { Preprocess, effectiveSteps, preprocessLabel, preprocessLines } from "../compose/Preprocess";
 import { StepBar, type StepItem } from "../compose/StepBar";
 import { TaskConfigStep } from "../compose/TaskConfigStep";
@@ -22,7 +23,7 @@ import { Badge, Card, CommandSteps, IssueList, PageHeader, formatParams, formatS
 import { Dialog, useToast } from "../ui/overlay";
 
 type Spec = Record<string, any>;
-type StepId = "model" | "field" | "preprocess" | "method" | "fieldConfig" | "tasks" | "taskConfig" | "run" | "ablation" | "review";
+type StepId = "field" | "model" | "preprocess" | "method" | "fieldConfig" | "tasks" | "taskConfig" | "run" | "ablation" | "review";
 
 const SPEC_KEY = "effeval.compose.v2";
 const STEP_KEY = "effeval.compose.step";
@@ -30,7 +31,7 @@ const STEP_LABELS: Record<StepId, string> = {
   model: "Model", field: "Field", preprocess: "Model preprocessing", method: "Method", fieldConfig: "Field config", tasks: "Tasks",
   taskConfig: "Task settings", run: "Run settings", ablation: "Ablation", review: "Review",
 };
-const ALL_STEPS: StepId[] = ["model", "field", "preprocess", "method", "fieldConfig", "tasks", "taskConfig", "run", "ablation", "review"];
+const ALL_STEPS: StepId[] = ["field", "model", "preprocess", "method", "fieldConfig", "tasks", "taskConfig", "run", "ablation", "review"];
 
 /** The wizard's steps for a mode and Field: the preprocessing step only for quantization, the ablation step only in ablation mode. */
 function stepsFor(kind: string, field: string): StepId[] {
@@ -86,6 +87,16 @@ function explain(issue: Issue, t: ReturnType<typeof useT>): string {
       return t("This method belongs to a different Field.");
     case "method.architecture_unsupported":
       return t("This method does not support the model's architecture.");
+    case "decoding.draft_required":
+      return t("Pick a draft model.");
+    case "decoding.k_required":
+      return t("Set how many tokens the draft proposes per step (1 to 16).");
+    case "decoding.draft_unknown_model":
+      return t("This draft model is not registered.");
+    case "decoding.vocab_mismatch":
+      return t("The draft model must have the same vocabulary as the target model.");
+    case "speed.hardware_required":
+      return t("Timed tasks need a Target GPU, so results are comparable. Set it in Run settings.");
     case "mode.task_unsupported":
       return t("This task cannot run in the chosen mode; pick another mode.");
     default:
@@ -101,6 +112,8 @@ function stepOfPath(path: string, rulesInFieldStep: boolean): StepId | null {
   if (path === "method" || path.startsWith("method.")) return "method";
   if (/^tasks\[\d+\]\.(mode|params)/.test(path)) return "taskConfig";
   if (path === "tasks" || path.startsWith("tasks")) return "tasks";
+  if (path === "decoding.draft" || path.startsWith("decoding.draft.")) return "model";
+  if (/^(decoding|runtime)(\.|$)/.test(path)) return "fieldConfig";
   if (/^(evaluator|hardware|generation|determinism|reuse|repeats)(\.|$)/.test(path)) return "run";
   if (path === "sweep" || path.startsWith("sweep.")) return "ablation";
   return null;
@@ -135,7 +148,7 @@ export function Compose() {
   const [to, setTo] = useDestination();
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<AblationDraft>({ param: "", text: "" });
-  const [stepId, setStepId] = useState<StepId>(() => (localStorage.getItem(STEP_KEY) as StepId | null) ?? "model");
+  const [stepId, setStepId] = useState<StepId>(() => (localStorage.getItem(STEP_KEY) as StepId | null) ?? "field");
   const [visited, setVisited] = useState<Set<StepId>>(() => new Set(ALL_STEPS.slice(0, ALL_STEPS.indexOf(stepId) + 1)));
   // Steps the user has moved away from; their problems are shown, the current step's stay quiet until it is left.
   const [left, setLeft] = useState<Set<StepId>>(() => new Set(ALL_STEPS.slice(0, ALL_STEPS.indexOf(stepId))));
@@ -166,6 +179,10 @@ export function Compose() {
     : (spec.method?.preset ?? "default") === "default" ? manifest?.default_preset : spec.method?.preset;
   const preset = presetName ? describe.presets[spec.method.name]?.[presetName] ?? null : null;
   const model = describe.models[spec.model?.name];
+  const roles = rolesOf(describe, spec.field);
+  const decodingField = usesDecoding(roles);
+  const draftRole = roles.find((r) => r.path.startsWith("decoding."));
+  const draftName: string = draftRole ? getIn(spec, `${draftRole.path}.name`) ?? "" : "";
   const architecture = model ? describe.architectures[model.architecture] : undefined;
   const update = (path: string, value: unknown) => setSpec((s) => setIn(s, path.split("."), value));
   const repeats = repeatsOf(spec);
@@ -184,7 +201,7 @@ export function Compose() {
 
   // Model, Field and Method gate the rest; every other step has defaults and can be passed with Next.
   const steps = stepsFor(kind, spec.field);
-  const filled: Partial<Record<StepId, boolean>> = { model: !!spec.model?.name, field: !!describe.fields[spec.field], method: !!manifest };
+  const filled: Partial<Record<StepId, boolean>> = { model: roles.every((r) => !!getIn(spec, `${r.path}.name`)), field: !!describe.fields[spec.field], method: !!manifest };
   const reachable = (index: number) => steps.slice(0, index).every((s) => filled[s] !== false);
   const blocking = steps.findIndex((s) => filled[s] === false);
   const storedIndex = steps.indexOf(stepId);
@@ -291,10 +308,25 @@ export function Compose() {
       body = (
         <Card title={stepTitle}>
           <div className="grid-2">
-            <Field label={t("Model")} error={err("model.name") ?? err("model")}>
-              <ModelPicker models={describe.models} value={spec.model?.name ?? ""} invalid={invalid.has("model.name")}
-                onChange={(code) => update("model.name", code)} />
-            </Field>
+            {roles.map((role) => {
+              const isTarget = role.path === "model";
+              const label = roles.length === 1 ? t("Model") : isTarget ? t("Target model") : role.name === "draft" ? t("Draft model") : role.name;
+              const chosen: string = getIn(spec, `${role.path}.name`) ?? "";
+              return (
+                <Field key={role.path} label={label} error={err(`${role.path}.name`) ?? err(role.path)}
+                  help={isTarget ? undefined : t("Only models with the target's vocabulary are listed.")}>
+                  <ModelPicker models={isTarget ? describe.models : draftChoices(describe.models, spec.model?.name)} value={chosen}
+                    invalid={invalid.has(`${role.path}.name`)}
+                    onChange={(code) => {
+                      const next = dropIncompatibleDraft(describe.models, setIn(spec, `${role.path}.name`.split("."), code));
+                      if (isTarget && draftName && getIn(next, `${draftRole!.path}.name`) === undefined) {
+                        toast(t("Draft model cleared"), { tone: "warning", description: t("{draft} does not share the vocabulary of {target}.", { draft: draftName, target: code }) });
+                      }
+                      setSpec(() => next);
+                    }} />
+                </Field>
+              );
+            })}
             <Field label={t("Precision")}>
               <Select value={spec.model?.dtype ?? model?.dtype ?? "bfloat16"} disabled={!model}
                 onChange={(v) => update("model.dtype", v === model?.dtype ? undefined : v)}
@@ -319,7 +351,7 @@ export function Compose() {
           <div className="choice-grid">
             {Object.values(describe.fields).map((f) => (
               <button key={f.name} type="button" className={`choice ${spec.field === f.name ? "on" : ""}`} aria-pressed={spec.field === f.name}
-                onClick={() => update("field", f.name)}>
+                onClick={() => setSpec((s) => selectField(describe, s, f.name))}>
                 <span className="strong">{f.name}</span>
                 <span className="small muted">{f.description}</span>
               </button>
@@ -375,10 +407,12 @@ export function Compose() {
     case "fieldConfig":
       body = (
         <Card title={stepTitle} hint={spec.field}>
+          {decodingField && <Decoding spec={spec} describe={describe} update={update} err={err} />}
+          {decodingField && fieldConfig && <div className="divider" />}
           {fieldConfig ? (
             <MethodConfig part="field" manifest={manifest} preset={preset} config={spec.method?.config ?? {}} invalidPaths={invalid} problems={problems}
               sites={architecture?.sites ?? []} graph={architecture?.graph} tied={model?.tie_word_embeddings} numLayers={model?.shape?.num_layers} onChange={(config) => setSpec((s) => ({ ...s, method: { ...s.method, config } }))} />
-          ) : (
+          ) : decodingField ? null : (
             <p className="faint small">{t("Method {method} uses no settings shared across the Field {field}; nothing to set here.", { method: methodTitle(describe, spec.method?.name ?? ""), field: spec.field })}</p>
           )}
         </Card>
@@ -443,6 +477,7 @@ export function Compose() {
                   <dt>{t("Model")}</dt><dd className="mono">{spec.model?.name || "—"}</dd>
                   <dt>{t("Precision")}</dt><dd className="mono">{spec.model?.dtype ?? model?.dtype ?? "—"}</dd>
                   {model && <><dt>{t("Checkpoint")}</dt><dd className="mono small">{model.checkpoint}</dd></>}
+                  {draftRole && <><dt>{t("Draft model")}</dt><dd className="mono">{draftName || "—"}</dd></>}
                 </dl>
               </ReviewGroup>
               <ReviewGroup title={t("Field")} onEdit={() => goto("field")}>
@@ -466,7 +501,13 @@ export function Compose() {
                 </ReviewGroup>
               )}
               <ReviewGroup title={t("Field config")} onEdit={() => goto("fieldConfig")}>
-                {!fieldConfig ? <span className="faint small">{t("none")}</span>
+                {decodingField && (
+                  <dl className="kv">
+                    <dt>{t("Provider")}</dt><dd>{providerLabel(describe, spec.runtime?.name)}</dd>
+                    <dt>{t("Draft tokens per step (k)")}</dt><dd className="mono">{spec.decoding?.num_speculative_tokens ?? "—"}</dd>
+                  </dl>
+                )}
+                {decodingField && !fieldConfig ? null : !fieldConfig ? <span className="faint small">{t("none")}</span>
                   : rules.length === 0 ? <span className="faint small">{t("none")}</span>
                     : <div className="stack-sm">{rules.map((rule, i) => <div key={i} className="mono text-xs">{ruleSentence(rule, t)}</div>)}</div>}
               </ReviewGroup>
@@ -531,7 +572,7 @@ export function Compose() {
           {status}
           <Segmented value={view === "yaml" ? "yaml" : kind} onChange={switchMode}
             options={[{ value: "single", label: t("Single evaluation") }, { value: "ablation", label: t("Ablation") }, { value: "yaml", label: t("YAML") }]} />
-          <Button variant="ghost" icon={<RotateCcw size={14} />} onClick={() => { setSpec(initialSpec(describe)); setStepId("model"); }}>{t("Reset")}</Button>
+          <Button variant="ghost" icon={<RotateCcw size={14} />} onClick={() => { setSpec(initialSpec(describe)); setStepId("field"); }}>{t("Reset")}</Button>
         </>}
       />
       {view === "yaml" ? (
@@ -596,6 +637,13 @@ export function Compose() {
 }
 
 
+/** The spec after choosing a Field: only a Field with a draft role keeps a decoding and a provider, and starts as speculative. */
+function selectField(describe: Describe, spec: Spec, field: string): Spec {
+  const { decoding: _drop, ...rest } = setIn(spec, ["field"], field);
+  if (usesDecoding(rolesOf(describe, field))) return { ...rest, decoding: spec.decoding ?? { mode: "speculative" } };
+  return setIn(rest, ["runtime", "name"], undefined);
+}
+
 /** Posts a warning banner when members are already running or have claimed jobs of a rendered plan. */
 export function warnDuplicates(toast: ReturnType<typeof useToast>, t: ReturnType<typeof useT>, issues: Issue[]) {
   const busy = issues.filter((i) => i.code === "run.in_progress" || i.code === "run.claimed");
@@ -619,6 +667,7 @@ export function CommandDialog({ rendered, onClose }: { rendered: Rendered | null
   const plan = rendered?.plan;
   const main = plan?.jobs.find((j) => j.role === "main");
   const fidelity = main?.fidelity;
+  const speculative = !!plan?.jobs.some((j) => j.spec.decoding);
   return (
     <Dialog open={!!rendered} onOpenChange={(open) => !open && onClose()} wide
       icon={<div className="icon-tile accent"><FileCode2 size={18} /></div>}
@@ -630,7 +679,7 @@ export function CommandDialog({ rendered, onClose }: { rendered: Rendered | null
             <div>
               <div className="field-label mb-2">{t("Jobs")}</div>
               <table className="list">
-                <thead><tr><th className="col-sm">{t("Role")}</th><th>{t("Model")}</th><th>{t("Method")}</th><th>{t("Task")}</th><th className="col-sm">{t("Evaluator")}</th><th className="col-sm right">{t("Estimate")}</th></tr></thead>
+                <thead><tr><th className="col-sm">{t("Role")}</th><th>{t("Model")}</th><th>{t("Method")}</th>{speculative && <th>{t("Decoding")}</th>}<th>{t("Task")}</th><th className="col-sm">{t("Evaluator")}</th><th className="col-sm right">{t("Estimate")}</th></tr></thead>
                 <tbody>
                   {plan.jobs.map((job) => {
                     const eta = rendered?.estimate?.jobs.find((e) => e.job_id === job.job_id);
@@ -639,6 +688,9 @@ export function CommandDialog({ rendered, onClose }: { rendered: Rendered | null
                         <td><Badge tone={job.role === "main" ? "accent" : undefined}>{t(job.role)}</Badge></td>
                         <td className="small mono">{job.spec.model.name}</td>
                         <td className="small mono">{preprocessLabel(job.spec.preprocess, describe, job.spec.method.name, t)}</td>
+                        {speculative && <td className="small mono">{job.spec.decoding
+                          ? `${t("draft")} ${job.spec.decoding.draft.model.name} · k=${job.spec.decoding.num_speculative_tokens} · ${providerLabel(describe, job.spec.runtime?.name)}`
+                          : `${t("Autoregressive")} · ${providerLabel(describe, job.spec.runtime?.name)}`}</td>}
                         <td className="small">{job.spec.task.name}</td>
                         <td className="small muted">{job.spec.evaluator.name}</td>
                         <td className="num small muted right" title={eta?.basis}>{eta ? formatSeconds((eta.prepare_s ?? 0) + (eta.measure_s ?? 0)) : "—"}</td>

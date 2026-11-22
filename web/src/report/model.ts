@@ -10,6 +10,8 @@ export interface ConfigField {
   label: string;
   path: string;
   virtual: boolean;
+  /** The label is a UI string that goes through the translator. */
+  translate?: boolean;
 }
 
 export interface MetricColumn {
@@ -65,8 +67,20 @@ const PROTOCOL: [string, (spec: Spec) => unknown][] = [
   ["evaluator", (s) => s.evaluator && `${s.evaluator.name} ${s.evaluator.version}`],
 ];
 
-const CONFIG_ROOTS = ["model", "method", "runtime", "generation", "determinism"];
-const HIDDEN_PATHS = new Set(["model.name", "model.checkpoint", "model.revision", "model.architecture", "method.name", "method.version"]);
+const CONFIG_ROOTS = ["model", "method", "runtime", "decoding", "generation", "determinism"];
+const HIDDEN_PATHS = new Set(["model.name", "model.checkpoint", "model.revision", "model.architecture", "method.name", "method.version",
+  "decoding.mode", "decoding.draft.model.checkpoint", "decoding.draft.model.revision", "decoding.draft.model.architecture", "decoding.draft.method.version"]);
+
+/** Config columns of decoding and the provider: their label (instead of the last path segment) by path. */
+const DECODING_LABELS: Record<string, string> = {
+  "runtime.name": "Provider",
+  "decoding.draft.model.name": "Draft model",
+  "decoding.draft.model.dtype": "Draft precision",
+  "decoding.draft.method.name": "Draft method",
+  "decoding.num_speculative_tokens": "Draft tokens per step (k)",
+  "decoding.verification": "Verification",
+};
+const PROVIDER_LABELS: Record<string, string> = { hf: "transformers", vllm: "vLLM", sglang: "SGLang" };
 export const QUANT_FIELDS: ConfigField[] = [
   { id: "quant.weight", label: "Weight", path: "method.config.rules", virtual: true },
   { id: "quant.activation", label: "Activation", path: "method.config.rules", virtual: true },
@@ -164,6 +178,7 @@ export function fieldValue(row: ConfigRow, field: ConfigField): string {
   const raw = row.flat.get(field.path);
   if (raw === undefined) return "—";
   const value = JSON.parse(raw);
+  if (field.path === "runtime.name") return PROVIDER_LABELS[value] ?? String(value);
   return value === null ? "—" : typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
@@ -217,7 +232,7 @@ export function buildBlocks(rows: Row[], describe: Describe): Block[] {
       if (!configRank.has(configKey)) configRank.set(configKey, configRank.size);
       let entry = configRows.get(key);
       if (!entry) {
-        entry = { key, isBaseline: spec.method?.name === "base", method: spec.method?.name, config, flat: flatten(config),
+        entry = { key, isBaseline: spec.method?.name === "base" && !spec.decoding, method: spec.method?.name, config, flat: flatten(config),
           cells: new Map(), limits: new Map(), limit: summarizeLimits([]), limitKey: "", tasks: [] };
         configRows.set(key, entry);
       }
@@ -271,7 +286,7 @@ export function buildBlocks(rows: Row[], describe: Describe): Block[] {
       ...quantFields,
       SAMPLES_FIELD,
       ...[...allPaths].filter((p) => !HIDDEN_PATHS.has(p) && !(hasRules && p === "method.config.rules")).sort()
-        .map((p) => ({ id: p, label: p.split(".").slice(-1)[0], path: p, virtual: false })),
+        .map((p) => ({ id: p, label: DECODING_LABELS[p] ?? p.split(".").slice(-1)[0], path: p, virtual: false, translate: p in DECODING_LABELS })),
     ];
     const rank = (m: MetricColumn) => {
       const at = describe.tasks[m.task]?.metrics.findIndex((x) => x.name === m.metric) ?? -1;

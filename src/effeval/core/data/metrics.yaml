@@ -24,7 +24,7 @@ metrics:
   - name: speedup
     label: Speedup
     kind: system
-    description: Geometric mean over shapes of float16 matmul latency / kernel latency (median of the repeats).
+    description: Kernel benchmarks, geometric mean over shapes of float16 matmul latency / kernel latency; speculative decoding, mean per-prompt tokens/s over that of autoregressive decoding of the same target.
     unit: "×"
     format: {style: fixed, decimals: 2}
     higher_is_better: true
@@ -45,14 +45,14 @@ metrics:
   - name: latency_ms
     label: Latency
     kind: system
-    description: Mean end-to-end latency per request.
+    description: Mean end-to-end latency per request; for generation speed, the time to generate a whole sample, summed over its turns.
     unit: ms
     format: {style: fixed, decimals: 1}
     higher_is_better: false
   - name: ttft_ms
     label: TTFT
     kind: system
-    description: Mean time to first token.
+    description: Mean time to first token; for multi-turn generation speed, that of the first turn.
     unit: ms
     format: {style: fixed, decimals: 1}
     higher_is_better: false
@@ -70,6 +70,38 @@ metrics:
     unit: GB
     format: {style: fixed, decimals: 2}
     higher_is_better: false
+  - name: acceptance_rate
+    label: Acceptance
+    kind: system
+    description: Share of drafted tokens the target accepted.
+    format: {style: fixed, decimals: 3}
+    higher_is_better: true
+  - name: mean_accepted_tokens
+    label: Tokens/round
+    kind: system
+    description: Mean tokens gained per speculative round, 1 + accepted drafts / rounds.
+    format: {style: fixed, decimals: 2}
+    higher_is_better: true
+  - name: draft_time_share
+    label: Draft time
+    kind: system
+    description: Share of decoding time (prefill, draft, verify) spent drafting.
+    format: {style: fixed, decimals: 3}
+    higher_is_better: false
+    placement: detail
+  - name: output_match
+    label: Output match
+    kind: system
+    description: Share of samples whose generated tokens equal the reference run's.
+    format: {style: fixed, decimals: 3}
+    higher_is_better: true
+  - name: multi_turn_prompt_match
+    label: Same later prompts
+    kind: system
+    description: Share of multi-turn samples whose later-turn prompts (which contain the model's earlier answers) equal the reference run's. Below 1, the two runs were timed on different later-turn prompts and their speeds there are not like for like.
+    format: {style: fixed, decimals: 3}
+    higher_is_better: true
+    placement: detail
 
 categories:
   - {name: language_modeling, label: PPL, order: 0, title: Perplexity}

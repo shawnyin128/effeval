@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
@@ -10,25 +11,32 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from effeval.core.manifest import MethodManifest
 from effeval.core.registry import manifest_from_impl, registered, resolve_entry
-from effeval.core.spec import JobSpec
+from effeval.core.spec import JobSpec, ResolvedMethod, ResolvedModel, ResolvedPreprocess, RuntimeSpec
 from effeval.core.types import InProcess
+from effeval.runtime.speculative import GreedyAcceptance, ModelDrafter, SpeculativeDecoder
 
 
 class ManifestMismatch(RuntimeError):
     """The method code installed on this node does not match the manifest the plan was validated against."""
 
 
-def load(spec: JobSpec) -> InProcess:
-    model = AutoModelForCausalLM.from_pretrained(
-        spec.model.checkpoint,
-        revision=spec.model.revision,
-        dtype=getattr(torch, spec.model.dtype),
+def load_model(model: ResolvedModel, runtime: RuntimeSpec) -> InProcess:
+    """Load one checkpoint and its tokenizer."""
+    loaded = AutoModelForCausalLM.from_pretrained(
+        model.checkpoint,
+        revision=model.revision,
+        dtype=getattr(torch, model.dtype),
         device_map="auto" if torch.cuda.is_available() else None,
-        attn_implementation=spec.runtime.attn_implementation,
+        attn_implementation=runtime.attn_implementation,
     )
-    model.eval()
-    tokenizer = AutoTokenizer.from_pretrained(spec.model.checkpoint, revision=spec.model.revision)
-    return InProcess(model=model, tokenizer=tokenizer)
+    loaded.eval()
+    tokenizer = AutoTokenizer.from_pretrained(model.checkpoint, revision=model.revision)
+    return InProcess(model=loaded, tokenizer=tokenizer)
+
+
+def load(spec: JobSpec) -> InProcess:
+    """Load the job's target checkpoint."""
+    return load_model(spec.model, spec.runtime)
 
 
 def method_function(manifest: MethodManifest) -> tuple[Any, type | None]:
@@ -76,38 +84,90 @@ def preprocess_summary(preprocess: Any, applied: Any) -> dict[str, Any]:
 
 
 @torch.no_grad()
-def prepare(spec: JobSpec, manifest: MethodManifest) -> InProcess:
-    """Load the base model, apply the job's preprocessing (if any), then its method.
-
-    The preprocessing sees the method's quantizer rules as `ctx.downstream` (None when the method has none).
-    The returned handle's `preprocess_applied` summarises what the preprocessing did (None without any).
-    """
-    handle = load(spec)
+def _apply(
+    handle: InProcess,
+    model: ResolvedModel,
+    method: ResolvedMethod,
+    preprocess: ResolvedPreprocess | None,
+    manifest: MethodManifest,
+) -> InProcess:
     fn, config = None, None
     if manifest.entry is not None:
         fn, config_model = method_function(manifest)
-        config = (
-            spec.method.config if config_model is None else config_model.model_validate(spec.method.config)
-        )
+        config = method.config if config_model is None else config_model.model_validate(method.config)
     summary = None
-    if spec.preprocess is not None:
+    if preprocess is not None:
         make_context, apply = (resolve_entry(entry) for entry in PREPROCESS_ENTRIES)
         weight = handle.model.get_input_embeddings().weight
         context = make_context(
             handle.model,
             handle.tokenizer,
             {
-                "checkpoint": spec.model.checkpoint,
-                "revision": spec.model.revision,
+                "checkpoint": model.checkpoint,
+                "revision": model.revision,
                 "dtype": str(weight.dtype),
                 "device": weight.device.type,
             },
             downstream=getattr(config, "rules", None),
         )
-        summary = preprocess_summary(spec.preprocess, apply(handle.model, spec.preprocess, context))
+        summary = preprocess_summary(preprocess, apply(handle.model, preprocess, context))
     if fn is None:
         return replace(handle, preprocess_applied=summary)
-    model = fn(handle.model, handle.tokenizer, config)
-    if not isinstance(model, torch.nn.Module):
-        raise TypeError(f"method {manifest.name!r} returned {type(model).__name__}; expected the model")
-    return InProcess(model=model, tokenizer=handle.tokenizer, preprocess_applied=summary)
+    result = fn(handle.model, handle.tokenizer, config)
+    if not isinstance(result, torch.nn.Module):
+        raise TypeError(f"method {manifest.name!r} returned {type(result).__name__}; expected the model")
+    return InProcess(model=result, tokenizer=handle.tokenizer, preprocess_applied=summary)
+
+
+def prepare_role(
+    model: ResolvedModel,
+    method: ResolvedMethod,
+    preprocess: ResolvedPreprocess | None,
+    runtime: RuntimeSpec,
+    manifest: MethodManifest,
+) -> InProcess:
+    """Load one role's checkpoint, apply its preprocessing (if any), then its method.
+
+    The preprocessing sees the method's quantizer rules as `ctx.downstream` (None when the method has none).
+    The returned handle's `preprocess_applied` summarises what the preprocessing did (None without any).
+    """
+    return _apply(load_model(model, runtime), model, method, preprocess, manifest)
+
+
+def prepare(spec: JobSpec, manifest: MethodManifest) -> InProcess:
+    """`prepare_role` for the job's target role."""
+    return _apply(load(spec), spec.model, spec.method, spec.preprocess, manifest)
+
+
+def prepare_speculative(
+    spec: JobSpec, manifests: Mapping[str, MethodManifest]
+) -> tuple[InProcess, dict[str, Any] | None]:
+    """Prepare the target and the draft role of a speculative job through `prepare_role`.
+
+    Returns (the target handle with `decoder` set to a SpeculativeDecoder, the draft's preprocessing
+    summary or None). Raises ValueError when the two vocabularies differ and NotImplementedError for
+    sampling verification.
+    """
+    decoding = spec.decoding
+    if decoding is None:
+        raise ValueError("prepare_speculative needs a job with decoding")
+    if decoding.verification != "greedy":
+        raise NotImplementedError(f"{decoding.verification} verification is not implemented")
+    target = prepare_role(spec.model, spec.method, spec.preprocess, spec.runtime, manifests[spec.method.name])
+    draft = decoding.draft
+    drafted = prepare_role(
+        draft.model, draft.method, draft.preprocess, spec.runtime, manifests[draft.method.name]
+    )
+    if target.tokenizer.get_vocab() != drafted.tokenizer.get_vocab():
+        raise ValueError(
+            f"draft {draft.model.name} and target {spec.model.name} have different tokenizer vocabularies"
+        )
+    if target.model.config.vocab_size != drafted.model.config.vocab_size:
+        raise ValueError(
+            f"draft {draft.model.name} and target {spec.model.name} have different config.vocab_size "
+            f"({drafted.model.config.vocab_size} vs {target.model.config.vocab_size})"
+        )
+    decoder = SpeculativeDecoder(
+        target.model, ModelDrafter(drafted.model), decoding.num_speculative_tokens, GreedyAcceptance()
+    )
+    return replace(target, decoder=decoder), drafted.preprocess_applied
