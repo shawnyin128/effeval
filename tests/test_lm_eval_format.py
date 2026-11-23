@@ -219,3 +219,19 @@ def test_only_multiple_choice_tasks_and_groups_of_them_produce_choice_loglikelih
     assert produces["mmlu_anatomy"] and produces["only_mc"]
     assert not produces["lambada"] and not produces["wikitext"]
     assert not produces["only_ll"] and not produces["mc_and_ll"]
+
+
+def test_function_metrics_are_listed_by_the_name_the_harness_reports():
+    cfg = {
+        "task": "chartqa",
+        "output_type": "generate_until",
+        "metric_list": [
+            {"metric": "/opt/env/site-packages/lm_eval/tasks/chartqa/utils.relaxed_accuracy", "higher_is_better": True}
+        ],
+        "filter_list": [{"name": "strict"}],
+    }
+    tasks, _ = listed_tasks({"chartqa": {"kind": "task", "cfg": cfg, "tags": []}}, lambda m: None)
+    (task,) = tasks
+    assert [m.name for m in task.metrics] == ["relaxed_accuracy,strict", "relaxed_accuracy_stderr,strict"]
+    assert task.metrics[1].stderr_of == "relaxed_accuracy,strict"
+    assert task.sample_scores == ["relaxed_accuracy"]

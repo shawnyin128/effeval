@@ -15,7 +15,7 @@
   "name": "lm_eval",
   "version": "2"
  },
- "generated_at": "2026-11-21T05:04:24+00:00",
+ "generated_at": "2026-11-23T00:35:09+00:00",
  "tasks": [
   {
    "description": "",
@@ -110914,13 +110914,13 @@
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/catalan_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/catalan_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/catalan_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -110930,8 +110930,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/catalan_bench/utils.rouge1",
-    "bleu"
+    "bleu",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -110956,13 +110956,13 @@
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/catalan_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/catalan_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/catalan_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -110972,8 +110972,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/catalan_bench/utils.rouge1",
-    "bleu"
+    "bleu",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -110998,13 +110998,13 @@
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/catalan_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/catalan_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/catalan_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -111014,8 +111014,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/catalan_bench/utils.rouge1",
-    "bleu"
+    "bleu",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -114528,33 +114528,33 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/chartqa/utils.exact_match",
+     "name": "exact_match",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/chartqa/utils.exact_match_stderr",
-     "stderr_of": "lm_eval/tasks/chartqa/utils.exact_match"
+     "name": "exact_match_stderr",
+     "stderr_of": "exact_match"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/chartqa/utils.relaxed_accuracy",
+     "name": "relaxed_accuracy",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/chartqa/utils.relaxed_accuracy_stderr",
-     "stderr_of": "lm_eval/tasks/chartqa/utils.relaxed_accuracy"
+     "name": "relaxed_accuracy_stderr",
+     "stderr_of": "relaxed_accuracy"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/chartqa/utils.anywhere_accuracy",
+     "name": "anywhere_accuracy",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/chartqa/utils.anywhere_accuracy_stderr",
-     "stderr_of": "lm_eval/tasks/chartqa/utils.anywhere_accuracy"
+     "name": "anywhere_accuracy_stderr",
+     "stderr_of": "anywhere_accuracy"
     }
    ],
    "mode": "generation",
@@ -114564,9 +114564,10 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/chartqa/utils.anywhere_accuracy",
-    "lm_eval/tasks/chartqa/utils.exact_match",
-    "lm_eval/tasks/chartqa/utils.relaxed_accuracy"
+    "anywhere_accuracy",
+    "exact_match",
+    "relaxed_accuracy",
+    "correct"
    ],
    "subsets": null,
    "subtasks": [],
@@ -114579,33 +114580,33 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/chartqa/utils.exact_match",
+     "name": "exact_match",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/chartqa/utils.exact_match_stderr",
-     "stderr_of": "lm_eval/tasks/chartqa/utils.exact_match"
+     "name": "exact_match_stderr",
+     "stderr_of": "exact_match"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/chartqa/utils.relaxed_accuracy",
+     "name": "relaxed_accuracy",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/chartqa/utils.relaxed_accuracy_stderr",
-     "stderr_of": "lm_eval/tasks/chartqa/utils.relaxed_accuracy"
+     "name": "relaxed_accuracy_stderr",
+     "stderr_of": "relaxed_accuracy"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/chartqa/utils.anywhere_accuracy",
+     "name": "anywhere_accuracy",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/chartqa/utils.anywhere_accuracy_stderr",
-     "stderr_of": "lm_eval/tasks/chartqa/utils.anywhere_accuracy"
+     "name": "anywhere_accuracy_stderr",
+     "stderr_of": "anywhere_accuracy"
     }
    ],
    "mode": "generation",
@@ -114615,9 +114616,10 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/chartqa/utils.anywhere_accuracy",
-    "lm_eval/tasks/chartqa/utils.exact_match",
-    "lm_eval/tasks/chartqa/utils.relaxed_accuracy"
+    "anywhere_accuracy",
+    "exact_match",
+    "relaxed_accuracy",
+    "correct"
    ],
    "subsets": null,
    "subtasks": [],
@@ -114630,33 +114632,33 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/chartqa/utils.exact_match",
+     "name": "exact_match",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/chartqa/utils.exact_match_stderr",
-     "stderr_of": "lm_eval/tasks/chartqa/utils.exact_match"
+     "name": "exact_match_stderr",
+     "stderr_of": "exact_match"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/chartqa/utils.relaxed_accuracy",
+     "name": "relaxed_accuracy",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/chartqa/utils.relaxed_accuracy_stderr",
-     "stderr_of": "lm_eval/tasks/chartqa/utils.relaxed_accuracy"
+     "name": "relaxed_accuracy_stderr",
+     "stderr_of": "relaxed_accuracy"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/chartqa/utils.anywhere_accuracy",
+     "name": "anywhere_accuracy",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/chartqa/utils.anywhere_accuracy_stderr",
-     "stderr_of": "lm_eval/tasks/chartqa/utils.anywhere_accuracy"
+     "name": "anywhere_accuracy_stderr",
+     "stderr_of": "anywhere_accuracy"
     }
    ],
    "mode": "generation",
@@ -114666,9 +114668,10 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/chartqa/utils.anywhere_accuracy",
-    "lm_eval/tasks/chartqa/utils.exact_match",
-    "lm_eval/tasks/chartqa/utils.relaxed_accuracy"
+    "anywhere_accuracy",
+    "exact_match",
+    "relaxed_accuracy",
+    "correct"
    ],
    "subsets": null,
    "subtasks": [],
@@ -118656,13 +118659,13 @@
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/spanish_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/spanish_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/spanish_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -118672,8 +118675,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/spanish_bench/utils.rouge1",
-    "bleu"
+    "bleu",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -118696,13 +118699,13 @@
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/catalan_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/catalan_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/catalan_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -118712,8 +118715,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/catalan_bench/utils.rouge1",
-    "bleu"
+    "bleu",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -118726,13 +118729,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4",
+     "name": "smoothed_bleu_4",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4_stderr",
-     "stderr_of": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+     "name": "smoothed_bleu_4_stderr",
+     "stderr_of": "smoothed_bleu_4"
     }
    ],
    "mode": "generation",
@@ -118742,7 +118745,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+    "smoothed_bleu_4"
    ],
    "subsets": null,
    "subtasks": [
@@ -118762,13 +118765,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4",
+     "name": "smoothed_bleu_4",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4_stderr",
-     "stderr_of": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+     "name": "smoothed_bleu_4_stderr",
+     "stderr_of": "smoothed_bleu_4"
     }
    ],
    "mode": "generation",
@@ -118778,7 +118781,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+    "smoothed_bleu_4"
    ],
    "subsets": null,
    "subtasks": [],
@@ -118791,13 +118794,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4",
+     "name": "smoothed_bleu_4",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4_stderr",
-     "stderr_of": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+     "name": "smoothed_bleu_4_stderr",
+     "stderr_of": "smoothed_bleu_4"
     }
    ],
    "mode": "generation",
@@ -118807,7 +118810,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+    "smoothed_bleu_4"
    ],
    "subsets": null,
    "subtasks": [],
@@ -118820,13 +118823,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4",
+     "name": "smoothed_bleu_4",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4_stderr",
-     "stderr_of": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+     "name": "smoothed_bleu_4_stderr",
+     "stderr_of": "smoothed_bleu_4"
     }
    ],
    "mode": "generation",
@@ -118836,7 +118839,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+    "smoothed_bleu_4"
    ],
    "subsets": null,
    "subtasks": [],
@@ -118849,13 +118852,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4",
+     "name": "smoothed_bleu_4",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4_stderr",
-     "stderr_of": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+     "name": "smoothed_bleu_4_stderr",
+     "stderr_of": "smoothed_bleu_4"
     }
    ],
    "mode": "generation",
@@ -118865,7 +118868,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+    "smoothed_bleu_4"
    ],
    "subsets": null,
    "subtasks": [],
@@ -118878,13 +118881,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4",
+     "name": "smoothed_bleu_4",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4_stderr",
-     "stderr_of": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+     "name": "smoothed_bleu_4_stderr",
+     "stderr_of": "smoothed_bleu_4"
     }
    ],
    "mode": "generation",
@@ -118894,7 +118897,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+    "smoothed_bleu_4"
    ],
    "subsets": null,
    "subtasks": [],
@@ -118907,13 +118910,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4",
+     "name": "smoothed_bleu_4",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4_stderr",
-     "stderr_of": "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+     "name": "smoothed_bleu_4_stderr",
+     "stderr_of": "smoothed_bleu_4"
     }
    ],
    "mode": "generation",
@@ -118923,7 +118926,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/code_x_glue/code-text/bleu.smoothed_bleu_4"
+    "smoothed_bleu_4"
    ],
    "subsets": null,
    "subtasks": [],
@@ -120257,13 +120260,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -120273,7 +120276,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/cruxeval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -120286,13 +120289,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -120302,7 +120305,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/cruxeval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -120315,13 +120318,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -120331,7 +120334,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/cruxeval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -120344,13 +120347,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -120360,7 +120363,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/cruxeval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -120373,13 +120376,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -120389,7 +120392,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/cruxeval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -120402,13 +120405,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/cruxeval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/cruxeval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -120418,7 +120421,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/cruxeval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -120966,53 +120969,53 @@
    "metrics": [
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_summarization/utils.rouge1,STRIP_ANSWER",
+     "name": "rouge1,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_summarization/utils.rouge1_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_summarization/utils.rouge1,STRIP_ANSWER"
+     "name": "rouge1_stderr,STRIP_ANSWER",
+     "stderr_of": "rouge1,STRIP_ANSWER"
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_summarization/utils.rouge2,STRIP_ANSWER",
+     "name": "rouge2,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_summarization/utils.rouge2_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_summarization/utils.rouge2,STRIP_ANSWER"
+     "name": "rouge2_stderr,STRIP_ANSWER",
+     "stderr_of": "rouge2,STRIP_ANSWER"
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_summarization/utils.rougeL,STRIP_ANSWER",
+     "name": "rougeL,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_summarization/utils.rougeL_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_summarization/utils.rougeL,STRIP_ANSWER"
+     "name": "rougeL_stderr,STRIP_ANSWER",
+     "stderr_of": "rougeL,STRIP_ANSWER"
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_summarization/utils.rougeLsum,STRIP_ANSWER",
+     "name": "rougeLsum,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_summarization/utils.rougeLsum_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_summarization/utils.rougeLsum,STRIP_ANSWER"
+     "name": "rougeLsum_stderr,STRIP_ANSWER",
+     "stderr_of": "rougeLsum,STRIP_ANSWER"
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_summarization/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_summarization/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_summarization/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     },
     {
      "higher_is_better": true,
@@ -121032,12 +121035,12 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_summarization/utils.bert",
-    "lm_eval/tasks/darija_bench/darija_summarization/utils.rouge1",
-    "lm_eval/tasks/darija_bench/darija_summarization/utils.rouge2",
-    "lm_eval/tasks/darija_bench/darija_summarization/utils.rougeL",
-    "lm_eval/tasks/darija_bench/darija_summarization/utils.rougeLsum",
-    "chrf"
+    "bert",
+    "chrf",
+    "rouge1",
+    "rouge2",
+    "rougeL",
+    "rougeLsum"
    ],
    "subsets": null,
    "subtasks": [],
@@ -147976,23 +147979,23 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.exact",
+     "name": "exact",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.exact_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.exact"
+     "name": "exact_stderr",
+     "stderr_of": "exact"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.f1",
+     "name": "f1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.f1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.f1"
+     "name": "f1_stderr",
+     "stderr_of": "f1"
     }
    ],
    "mode": "generation",
@@ -148002,8 +148005,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/french_bench/utils.exact",
-    "lm_eval/tasks/french_bench/utils.f1"
+    "exact",
+    "f1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -148064,23 +148067,23 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.f1",
+     "name": "f1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.f1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.f1"
+     "name": "f1_stderr",
+     "stderr_of": "f1"
     }
    ],
    "mode": "generation",
@@ -148090,8 +148093,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/french_bench/utils.f1",
-    "lm_eval/tasks/french_bench/utils.rouge1"
+    "f1",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -148107,33 +148110,33 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.exact",
+     "name": "exact",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.exact_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.exact"
+     "name": "exact_stderr",
+     "stderr_of": "exact"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.f1",
+     "name": "f1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.f1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.f1"
+     "name": "f1_stderr",
+     "stderr_of": "f1"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -148143,9 +148146,9 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/french_bench/utils.exact",
-    "lm_eval/tasks/french_bench/utils.f1",
-    "lm_eval/tasks/french_bench/utils.rouge1"
+    "exact",
+    "f1",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -148240,33 +148243,33 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.exact",
+     "name": "exact",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.exact_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.exact"
+     "name": "exact_stderr",
+     "stderr_of": "exact"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.f1",
+     "name": "f1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.f1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.f1"
+     "name": "f1_stderr",
+     "stderr_of": "f1"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -148276,9 +148279,9 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/french_bench/utils.exact",
-    "lm_eval/tasks/french_bench/utils.f1",
-    "lm_eval/tasks/french_bench/utils.rouge1"
+    "exact",
+    "f1",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -148349,13 +148352,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -148365,7 +148368,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/french_bench/utils.rouge1"
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -148381,13 +148384,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -148397,7 +148400,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/french_bench/utils.rouge1"
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -148492,43 +148495,43 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.exact",
+     "name": "exact",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.exact_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.exact"
+     "name": "exact_stderr",
+     "stderr_of": "exact"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.f1",
+     "name": "f1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.f1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.f1"
+     "name": "f1_stderr",
+     "stderr_of": "f1"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/french_bench/utils.is_included",
+     "name": "is_included",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/french_bench/utils.is_included_stderr",
-     "stderr_of": "lm_eval/tasks/french_bench/utils.is_included"
+     "name": "is_included_stderr",
+     "stderr_of": "is_included"
     }
    ],
    "mode": "generation",
@@ -148538,10 +148541,10 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/french_bench/utils.exact",
-    "lm_eval/tasks/french_bench/utils.f1",
-    "lm_eval/tasks/french_bench/utils.is_included",
-    "lm_eval/tasks/french_bench/utils.rouge1"
+    "exact",
+    "f1",
+    "is_included",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -268910,13 +268913,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/humaneval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/humaneval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/humaneval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -268926,7 +268929,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/humaneval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -268941,13 +268944,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/humaneval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/humaneval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/humaneval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -268957,7 +268960,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/humaneval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -268972,13 +268975,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/humaneval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/humaneval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/humaneval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -268988,7 +268991,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/humaneval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -269019,7 +269022,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/humaneval_infilling/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [
@@ -269039,13 +269042,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/humaneval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/humaneval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/humaneval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -269055,7 +269058,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/humaneval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -269070,13 +269073,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -269086,7 +269089,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/humaneval_infilling/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -269101,13 +269104,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/humaneval/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/humaneval/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/humaneval/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -269117,7 +269120,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/humaneval/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -269132,13 +269135,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -269148,7 +269151,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/humaneval_infilling/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -269163,13 +269166,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -269179,7 +269182,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/humaneval_infilling/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -269194,13 +269197,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k,create_test",
+     "name": "pass_at_k,create_test",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k_stderr,create_test",
-     "stderr_of": "lm_eval/tasks/humaneval_infilling/utils.pass_at_k,create_test"
+     "name": "pass_at_k_stderr,create_test",
+     "stderr_of": "pass_at_k,create_test"
     }
    ],
    "mode": "generation",
@@ -269210,7 +269213,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/humaneval_infilling/utils.pass_at_k"
+    "pass_at_k"
    ],
    "subsets": null,
    "subtasks": [],
@@ -296176,13 +296179,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/japanese_leaderboard/ja_leaderboard_xlsum.rouge2,whitespaces",
+     "name": "rouge2,whitespaces",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/japanese_leaderboard/ja_leaderboard_xlsum.rouge2_stderr,whitespaces",
-     "stderr_of": "lm_eval/tasks/japanese_leaderboard/ja_leaderboard_xlsum.rouge2,whitespaces"
+     "name": "rouge2_stderr,whitespaces",
+     "stderr_of": "rouge2,whitespaces"
     }
    ],
    "mode": "generation",
@@ -296192,7 +296195,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/japanese_leaderboard/ja_leaderboard_xlsum.rouge2"
+    "rouge2"
    ],
    "subsets": null,
    "subtasks": [],
@@ -296412,23 +296415,23 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.json_validity",
+     "name": "json_validity",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.json_validity_stderr",
-     "stderr_of": "lm_eval/tasks/jsonschema_bench/metrics.json_validity"
+     "name": "json_validity_stderr",
+     "stderr_of": "json_validity"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance",
+     "name": "schema_compliance",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance_stderr",
-     "stderr_of": "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance"
+     "name": "schema_compliance_stderr",
+     "stderr_of": "schema_compliance"
     }
    ],
    "mode": "generation",
@@ -296438,8 +296441,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/jsonschema_bench/metrics.json_validity",
-    "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance"
+    "json_validity",
+    "schema_compliance"
    ],
    "subsets": null,
    "subtasks": [],
@@ -296454,23 +296457,23 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.json_validity",
+     "name": "json_validity",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.json_validity_stderr",
-     "stderr_of": "lm_eval/tasks/jsonschema_bench/metrics.json_validity"
+     "name": "json_validity_stderr",
+     "stderr_of": "json_validity"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance",
+     "name": "schema_compliance",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance_stderr",
-     "stderr_of": "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance"
+     "name": "schema_compliance_stderr",
+     "stderr_of": "schema_compliance"
     }
    ],
    "mode": "generation",
@@ -296480,8 +296483,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/jsonschema_bench/metrics.json_validity",
-    "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance"
+    "json_validity",
+    "schema_compliance"
    ],
    "subsets": null,
    "subtasks": [],
@@ -296496,23 +296499,23 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.json_validity",
+     "name": "json_validity",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.json_validity_stderr",
-     "stderr_of": "lm_eval/tasks/jsonschema_bench/metrics.json_validity"
+     "name": "json_validity_stderr",
+     "stderr_of": "json_validity"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance",
+     "name": "schema_compliance",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance_stderr",
-     "stderr_of": "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance"
+     "name": "schema_compliance_stderr",
+     "stderr_of": "schema_compliance"
     }
    ],
    "mode": "generation",
@@ -296522,8 +296525,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/jsonschema_bench/metrics.json_validity",
-    "lm_eval/tasks/jsonschema_bench/metrics.schema_compliance"
+    "json_validity",
+    "schema_compliance"
    ],
    "subsets": null,
    "subtasks": [],
@@ -332890,13 +332893,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/mbpp/utils.pass_at_1",
+     "name": "pass_at_1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/mbpp/utils.pass_at_1_stderr",
-     "stderr_of": "lm_eval/tasks/mbpp/utils.pass_at_1"
+     "name": "pass_at_1_stderr",
+     "stderr_of": "pass_at_1"
     }
    ],
    "mode": "generation",
@@ -332906,7 +332909,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/mbpp/utils.pass_at_1"
+    "pass_at_1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -332919,13 +332922,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/mbpp/utils.pass_at_1,extract_code",
+     "name": "pass_at_1,extract_code",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/mbpp/utils.pass_at_1_stderr,extract_code",
-     "stderr_of": "lm_eval/tasks/mbpp/utils.pass_at_1,extract_code"
+     "name": "pass_at_1_stderr,extract_code",
+     "stderr_of": "pass_at_1,extract_code"
     }
    ],
    "mode": "generation",
@@ -332935,7 +332938,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/mbpp/utils.pass_at_1"
+    "pass_at_1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -332948,13 +332951,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/mbpp/utils.pass_at_1",
+     "name": "pass_at_1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/mbpp/utils.pass_at_1_stderr",
-     "stderr_of": "lm_eval/tasks/mbpp/utils.pass_at_1"
+     "name": "pass_at_1_stderr",
+     "stderr_of": "pass_at_1"
     }
    ],
    "mode": "generation",
@@ -332964,7 +332967,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/mbpp/utils.pass_at_1"
+    "pass_at_1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -332979,13 +332982,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/mbpp/utils.pass_at_1,extract_code",
+     "name": "pass_at_1,extract_code",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/mbpp/utils.pass_at_1_stderr,extract_code",
-     "stderr_of": "lm_eval/tasks/mbpp/utils.pass_at_1,extract_code"
+     "name": "pass_at_1_stderr,extract_code",
+     "stderr_of": "pass_at_1,extract_code"
     }
    ],
    "mode": "generation",
@@ -332995,7 +332998,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/mbpp/utils.pass_at_1"
+    "pass_at_1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -462365,23 +462368,23 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/noticia/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/noticia/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/noticia/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     },
     {
      "higher_is_better": false,
-     "name": "lm_eval/tasks/noticia/utils.average_len",
+     "name": "average_len",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/noticia/utils.average_len_stderr",
-     "stderr_of": "lm_eval/tasks/noticia/utils.average_len"
+     "name": "average_len_stderr",
+     "stderr_of": "average_len"
     }
    ],
    "mode": "generation",
@@ -462391,8 +462394,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/noticia/utils.average_len",
-    "lm_eval/tasks/noticia/utils.rouge1"
+    "average_len",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -484167,13 +484170,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/qasper/metrics.f1_abstractive",
+     "name": "f1_abstractive",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/qasper/metrics.f1_abstractive_stderr",
-     "stderr_of": "lm_eval/tasks/qasper/metrics.f1_abstractive"
+     "name": "f1_abstractive_stderr",
+     "stderr_of": "f1_abstractive"
     }
    ],
    "mode": "generation",
@@ -484183,7 +484186,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/qasper/metrics.f1_abstractive"
+    "f1_abstractive"
    ],
    "subsets": null,
    "subtasks": [],
@@ -484665,13 +484668,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/nerel-bench/utils.chrf",
+     "name": "chrf",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/nerel-bench/utils.chrf_stderr",
-     "stderr_of": "lm_eval/tasks/nerel-bench/utils.chrf"
+     "name": "chrf_stderr",
+     "stderr_of": "chrf"
     }
    ],
    "mode": "generation",
@@ -484681,7 +484684,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/nerel-bench/utils.chrf"
+    "chrf"
    ],
    "subsets": null,
    "subtasks": [],
@@ -484696,13 +484699,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/nerel-bench/utils.f1",
+     "name": "f1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/nerel-bench/utils.f1_stderr",
-     "stderr_of": "lm_eval/tasks/nerel-bench/utils.f1"
+     "name": "f1_stderr",
+     "stderr_of": "f1"
     }
    ],
    "mode": "generation",
@@ -484712,7 +484715,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/nerel-bench/utils.f1"
+    "f1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -484820,13 +484823,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/nerel-bench/utils.chrf",
+     "name": "chrf",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/nerel-bench/utils.chrf_stderr",
-     "stderr_of": "lm_eval/tasks/nerel-bench/utils.chrf"
+     "name": "chrf_stderr",
+     "stderr_of": "chrf"
     }
    ],
    "mode": "generation",
@@ -484836,7 +484839,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/nerel-bench/utils.chrf"
+    "chrf"
    ],
    "subsets": null,
    "subtasks": [],
@@ -484851,13 +484854,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/nerel-bench/utils.f1",
+     "name": "f1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/nerel-bench/utils.f1_stderr",
-     "stderr_of": "lm_eval/tasks/nerel-bench/utils.f1"
+     "name": "f1_stderr",
+     "stderr_of": "f1"
     }
    ],
    "mode": "generation",
@@ -484867,7 +484870,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/nerel-bench/utils.f1"
+    "f1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -502186,13 +502189,13 @@
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/galician_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/galician_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/galician_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -502202,8 +502205,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/galician_bench/utils.rouge1",
-    "bleu"
+    "bleu",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -502258,13 +502261,13 @@
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/super_glue/cb/t5_utils.mean_3class_f1",
+     "name": "mean_3class_f1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/super_glue/cb/t5_utils.mean_3class_f1_stderr",
-     "stderr_of": "lm_eval/tasks/super_glue/cb/t5_utils.mean_3class_f1"
+     "name": "mean_3class_f1_stderr",
+     "stderr_of": "mean_3class_f1"
     }
    ],
    "mode": "generation",
@@ -502274,8 +502277,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/super_glue/cb/t5_utils.mean_3class_f1",
     "exact_match",
+    "mean_3class_f1",
     "correct"
    ],
    "subsets": null,
@@ -502323,23 +502326,23 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/super_glue/multirc/t5_utils.f1",
+     "name": "f1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/super_glue/multirc/t5_utils.f1_stderr",
-     "stderr_of": "lm_eval/tasks/super_glue/multirc/t5_utils.f1"
+     "name": "f1_stderr",
+     "stderr_of": "f1"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/super_glue/multirc/t5_utils.em",
+     "name": "em",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/super_glue/multirc/t5_utils.em_stderr",
-     "stderr_of": "lm_eval/tasks/super_glue/multirc/t5_utils.em"
+     "name": "em_stderr",
+     "stderr_of": "em"
     }
    ],
    "mode": "generation",
@@ -502349,8 +502352,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/super_glue/multirc/t5_utils.em",
-    "lm_eval/tasks/super_glue/multirc/t5_utils.f1"
+    "em",
+    "f1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -502365,23 +502368,23 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/super_glue/record/t5_utils.em",
+     "name": "em",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/super_glue/record/t5_utils.em_stderr",
-     "stderr_of": "lm_eval/tasks/super_glue/record/t5_utils.em"
+     "name": "em_stderr",
+     "stderr_of": "em"
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/super_glue/record/t5_utils.f1",
+     "name": "f1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/super_glue/record/t5_utils.f1_stderr",
-     "stderr_of": "lm_eval/tasks/super_glue/record/t5_utils.f1"
+     "name": "f1_stderr",
+     "stderr_of": "f1"
     }
    ],
    "mode": "generation",
@@ -502391,8 +502394,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/super_glue/record/t5_utils.em",
-    "lm_eval/tasks/super_glue/record/t5_utils.f1"
+    "em",
+    "f1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -503356,13 +503359,13 @@
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/catalan_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/catalan_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/catalan_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -503372,8 +503375,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/catalan_bench/utils.rouge1",
-    "bleu"
+    "bleu",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513299,13 +513302,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513315,7 +513318,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513330,13 +513333,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513346,7 +513349,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513361,13 +513364,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513377,7 +513380,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513392,13 +513395,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513408,7 +513411,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513423,13 +513426,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513439,7 +513442,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513454,13 +513457,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513470,7 +513473,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513485,13 +513488,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513501,7 +513504,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513516,13 +513519,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513532,7 +513535,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513547,13 +513550,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513563,7 +513566,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513578,13 +513581,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513594,7 +513597,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513609,13 +513612,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513625,7 +513628,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513640,13 +513643,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513656,7 +513659,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513671,13 +513674,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513687,7 +513690,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513702,13 +513705,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513718,7 +513721,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513733,13 +513736,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513749,7 +513752,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513764,13 +513767,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513780,7 +513783,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513795,13 +513798,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513811,7 +513814,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513826,13 +513829,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513842,7 +513845,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513857,13 +513860,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513873,7 +513876,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513888,13 +513891,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_translation/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_translation/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513904,7 +513907,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_translation/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513919,13 +513922,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513935,7 +513938,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513950,13 +513953,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513966,7 +513969,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -513981,13 +513984,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert,STRIP_ANSWER",
+     "name": "bert,STRIP_ANSWER",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert_stderr,STRIP_ANSWER",
-     "stderr_of": "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert,STRIP_ANSWER"
+     "name": "bert_stderr,STRIP_ANSWER",
+     "stderr_of": "bert,STRIP_ANSWER"
     }
    ],
    "mode": "generation",
@@ -513997,7 +514000,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/darija_bench/darija_transliteration/utils.bert"
+    "bert"
    ],
    "subsets": null,
    "subtasks": [],
@@ -522417,13 +522420,13 @@
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/wmt2016/metrics.bleu",
+     "name": "bleu",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/wmt2016/metrics.bleu_stderr",
-     "stderr_of": "lm_eval/tasks/wmt2016/metrics.bleu"
+     "name": "bleu_stderr",
+     "stderr_of": "bleu"
     }
    ],
    "mode": "generation",
@@ -522433,7 +522436,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/wmt2016/metrics.bleu",
+    "bleu",
     "wer"
    ],
    "subsets": null,
@@ -523517,13 +523520,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523533,7 +523536,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523549,13 +523552,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523565,7 +523568,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523581,13 +523584,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523597,7 +523600,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523613,13 +523616,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523629,7 +523632,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523645,13 +523648,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523661,7 +523664,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523677,13 +523680,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523693,7 +523696,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523719,13 +523722,13 @@
     },
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/spanish_bench/utils.rouge1",
+     "name": "rouge1",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/spanish_bench/utils.rouge1_stderr",
-     "stderr_of": "lm_eval/tasks/spanish_bench/utils.rouge1"
+     "name": "rouge1_stderr",
+     "stderr_of": "rouge1"
     }
    ],
    "mode": "generation",
@@ -523735,8 +523738,8 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/spanish_bench/utils.rouge1",
-    "bleu"
+    "bleu",
+    "rouge1"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523749,13 +523752,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523765,7 +523768,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523781,13 +523784,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523797,7 +523800,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523813,13 +523816,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523829,7 +523832,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523845,13 +523848,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523861,7 +523864,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523877,13 +523880,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523893,7 +523896,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523909,13 +523912,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523925,7 +523928,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523941,13 +523944,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523957,7 +523960,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -523973,13 +523976,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -523989,7 +523992,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524005,13 +524008,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524021,7 +524024,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524037,13 +524040,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524053,7 +524056,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524069,13 +524072,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524085,7 +524088,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524101,13 +524104,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524117,7 +524120,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524133,13 +524136,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524149,7 +524152,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524165,13 +524168,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524181,7 +524184,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524197,13 +524200,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524213,7 +524216,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524229,13 +524232,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524245,7 +524248,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524261,13 +524264,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524277,7 +524280,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524293,13 +524296,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524309,7 +524312,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524325,13 +524328,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524341,7 +524344,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524357,13 +524360,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524373,7 +524376,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524389,13 +524392,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524405,7 +524408,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524421,13 +524424,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524437,7 +524440,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524453,13 +524456,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524469,7 +524472,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524485,13 +524488,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524501,7 +524504,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524517,13 +524520,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524533,7 +524536,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524549,13 +524552,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524565,7 +524568,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524581,13 +524584,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524597,7 +524600,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524613,13 +524616,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524629,7 +524632,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524645,13 +524648,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524661,7 +524664,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_2/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524677,13 +524680,13 @@
    "metrics": [
     {
      "higher_is_better": true,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL",
+     "name": "rougeL",
      "stderr_of": null
     },
     {
      "higher_is_better": null,
-     "name": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL_stderr",
-     "stderr_of": "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+     "name": "rougeL_stderr",
+     "stderr_of": "rougeL"
     }
    ],
    "mode": "generation",
@@ -524693,7 +524696,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_3/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [],
@@ -524725,7 +524728,7 @@
     "per_sample"
    ],
    "sample_scores": [
-    "lm_eval/tasks/afrobench/xlsum/prompt_1/utils.rougeL"
+    "rougeL"
    ],
    "subsets": null,
    "subtasks": [

@@ -22,6 +22,15 @@ def metric_name(metric: str, filter_name: str) -> str:
     return metric if filter_name == "none" else f"{metric},{filter_name}"
 
 
+def harness_metric(metric: str) -> str:
+    """The name the harness reports for a `metric_list` entry.
+
+    A `!function module.fn` metric loads as the string `/abs/path/module.fn`; the harness reports it by
+    the function's name, `fn`.
+    """
+    return metric.rsplit(".", 1)[1] if "/" in metric else metric
+
+
 def stderr_name(metric: str, filter_name: str) -> str:
     return metric_name(f"{metric}_stderr", filter_name)
 
@@ -40,7 +49,7 @@ def _metrics(
         for entry in entries:
             if not isinstance(entry, dict) or not isinstance(entry.get("metric"), str):
                 continue
-            metric = entry["metric"]
+            metric = harness_metric(entry["metric"])
             declared = entry.get("higher_is_better")
             better = declared if isinstance(declared, bool) else fallback.get(metric, direction(metric))
             name = metric_name(metric, filter_name)
@@ -86,7 +95,9 @@ def _leaf(name: str, entry: dict[str, Any], direction: Callable[[str], bool | No
     shots = cfg.get("num_fewshot", 0)
     primary = next(m for m in metrics if m.stderr_of is None)
     base = primary.name.split(",")[0]
-    sample_scores = sorted({e["metric"] for e in entries if isinstance(e, dict) and "metric" in e})
+    sample_scores = sorted(
+        {harness_metric(e["metric"]) for e in entries if isinstance(e, dict) and isinstance(e.get("metric"), str)}
+    )
     if base in ZERO_ONE_METRICS and primary.higher_is_better:
         sample_scores.append("correct")
     task = ListedTask(
