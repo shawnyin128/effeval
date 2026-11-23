@@ -23,6 +23,7 @@ from effeval.evaluators import speed
 from effeval.evaluators.speed_backend import Generation
 from effeval.metrics.quality import COMPARATIVE
 from effeval.plan import freeze
+from effeval.runtime.engines.client import EngineReply
 
 SPEC_BENCH_ROWS = [
     {"question_id": 81, "category": "writing", "turns": ["alpha beta", "gamma delta"]},
@@ -459,12 +460,93 @@ def test_categories_and_limit_select_samples_per_category(fake_set):
         speed.select(prompts, ["math"], None)
 
 
-def test_an_engine_handle_is_a_clear_not_implemented_stub_naming_wp8(fake_set):
-    handle = EngineHandle(client=None, tokenizer=None, runtime="vllm")
-    with pytest.raises(NotImplementedError, match="WP8"):
-        speed.make_backend(handle, fake_set[0].spec)
-    with pytest.raises(NotImplementedError, match="vllm"):
-        speed.EVALUATOR.run(handle, fake_set[0].spec, builtin_catalog().tasks["speed/fake"], None)
+class FakeEngineClient:
+    """Stands in for an `EngineClient`: records requests and replies with fixed tokens and engine seconds."""
+
+    def __init__(self, stats=True):
+        self.calls = []
+        self.stats = stats
+
+    def generate(self, prompt_ids, max_new_tokens):
+        self.calls.append((prompt_ids, max_new_tokens))
+        counters = (1, 3, 2) if self.stats else (None, None, None)
+        return EngineReply([1, 2, 3], 0.25, *counters)
+
+
+def engine_backend(fake_set, client=None, *, role=0, capacity=None, do_sample=False):
+    job = fake_set[role].spec
+    if capacity is not None:
+        runtime = job.runtime.model_copy(update={"static_cache_tokens": capacity})
+        job = job.model_copy(update={"runtime": runtime})
+    if do_sample:
+        job = job.model_copy(update={"generation": job.generation.model_copy(update={"do_sample": True})})
+    handle = EngineHandle(client or FakeEngineClient(), FakeTokenizer(), "vllm", "NVIDIA RTX A6000")
+    return speed.make_backend(handle, job), job
+
+
+def test_the_evaluator_runs_an_engine_backend_end_to_end(fake_set):
+    backend, job = engine_backend(fake_set)
+    result = speed.evaluate(backend, job, builtin_catalog().tasks["speed/fake"])
+    assert float(result.metrics["throughput_tok_s"]) == pytest.approx(12.0)
+    assert float(result.metrics["latency_ms"]) == pytest.approx((250 + 500 + 250) / 3)
+    assert float(result.metrics["acceptance_rate"]) == pytest.approx(2 / 3)
+    assert float(result.metrics["mean_accepted_tokens"]) == pytest.approx(3.0)
+    assert result.samples[1].scores["latency_ms"] == pytest.approx(500.0)
+    for absent in ("ttft_ms", "peak_memory_gb", "draft_time_share"):
+        assert absent not in result.metrics
+    assert result.protocol["device"] == "NVIDIA RTX A6000"
+    assert "inside the engine worker" in result.protocol["timing"]
+    assert result.protocol["temperature"] is None
+    assert result.protocol["decoder"]["num_speculative_tokens"] == 3
+
+
+def test_an_autoregressive_engine_run_reports_no_speculative_metrics(fake_set):
+    backend, job = engine_backend(fake_set, FakeEngineClient(stats=False), role=1)
+    result = speed.evaluate(backend, job, builtin_catalog().tasks["speed/fake"])
+    assert set(result.metrics) == {"throughput_tok_s", "latency_ms"}
+    assert result.protocol["decoder"] == "autoregressive"
+
+
+def test_engine_backend_rejects_a_generation_beyond_capacity_before_sending(fake_set):
+    client = FakeEngineClient()
+    backend, _ = engine_backend(fake_set, client, capacity=16)
+    with pytest.raises(ValueError, match=r"needs 17 cache positions.*runtime\.static_cache_tokens is 16"):
+        backend.generate(list(range(10)), 8)
+    assert client.calls == []
+    backend.generate(list(range(10)), 7)
+    assert len(client.calls) == 1
+
+
+def test_engine_backend_reset_sends_nothing(fake_set):
+    client = FakeEngineClient()
+    backend, _ = engine_backend(fake_set, client)
+    backend.reset()
+    backend.synchronize()
+    backend.reset_peak_memory()
+    assert client.calls == [] and backend.peak_memory_gb() is None
+
+
+def test_spec_bench_deviations_on_an_engine_omit_determinism(fake_set, monkeypatch):
+    loaded = promptsets.load_prompt_set("fake")
+    renamed = replace(loaded, info=replace(loaded.info, name="spec_bench"))
+    monkeypatch.setattr(speed, "load_prompt_set", lambda name: renamed)
+    task = builtin_catalog().tasks["speed/fake"]
+    backend, job = engine_backend(fake_set)
+    deviations = speed.evaluate(backend, job, task).protocol["deviations_from_spec_bench"]
+    assert deviations == [d for d in speed.SPEC_BENCH_DEVIATIONS if not d.startswith("determinism:")]
+    assert len(deviations) == len(speed.SPEC_BENCH_DEVIATIONS) - 1
+    hf_result = speed.evaluate(FakeBackend(), fake_set[1].spec, task)
+    assert hf_result.protocol["deviations_from_spec_bench"] == list(speed.SPEC_BENCH_DEVIATIONS)
+
+
+def test_engine_backend_refuses_sampling(fake_set):
+    with pytest.raises(ValueError, match="do_sample"):
+        engine_backend(fake_set, do_sample=True)
+
+
+def test_an_unknown_handle_is_a_type_error(fake_set):
+    with pytest.raises(TypeError, match="model handle"):
+        speed.make_backend(None, fake_set[0].spec)
 
 
 # Timing contract and the backend call protocol

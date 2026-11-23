@@ -320,6 +320,46 @@ def test_engine_runtime_freezes_library():
     assert sglang.run_key != main.run_key
 
 
+def test_engine_run_key_depends_on_cuda_graphs_and_capacity():
+    def keys(**runtime):
+        plan, _ = frozen(speed_spec(runtime={"name": "vllm", **runtime}))
+        main, reference = role(plan, "main"), role(plan, "reference")
+        return main.run_key, reference.run_key, model_group_key(main), model_group_key(reference)
+
+    base = keys()
+    for changed in (keys(cuda_graphs=False), keys(static_cache_tokens=8192)):
+        assert all(a != b for a, b in zip(base, changed, strict=True))
+
+
+def test_sampling_is_rejected_on_an_engine_for_the_run_and_for_a_task():
+    assert "runtime.sampling_later" in check(
+        speed_spec(runtime={"name": "vllm"}, decoding=None, generation={"do_sample": True})
+    )
+    task = {"name": "speed/spec_bench", "params": {"do_sample": True}}
+    assert "runtime.sampling_later" in check(
+        spec(tasks=[task], hardware={"gpu": "H100-SXM"}, runtime={"name": "sglang"}, decoding=None)
+    )
+    assert "runtime.sampling_later" not in check(speed_spec(runtime={"name": "vllm"}, decoding=None))
+
+
+def test_a_draft_dtype_different_from_the_target_is_an_error_on_engines_only():
+    draft = {
+        "mode": "speculative",
+        "draft": {"model": {"name": "qwen3-0.6b", "dtype": "float16"}},
+        "num_speculative_tokens": 4,
+    }
+    assert "runtime.draft_dtype" in check(speed_spec(runtime={"name": "sglang"}, decoding=draft))
+    assert "runtime.draft_dtype" not in check(speed_spec(decoding=draft))
+    assert "runtime.draft_dtype" not in check(speed_spec(runtime={"name": "sglang"}))
+
+
+def test_an_engine_runtime_needs_exactly_one_gpu():
+    two = {"gpu": "H100-SXM", "count": 2}
+    raw = spec(tasks=["speed/spec_bench"], runtime={"name": "vllm"}, hardware=two)
+    assert "runtime.single_gpu" in check(raw)
+    assert "runtime.single_gpu" not in check(speed_spec(runtime={"name": "vllm"}))
+
+
 def test_speed_jobs_key_on_the_whole_generation_and_on_the_gpu():
     base = role(frozen(speed_spec())[0], "main")
     longer = role(frozen(speed_spec(generation={"max_new_tokens": 64}))[0], "main")

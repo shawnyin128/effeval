@@ -112,5 +112,23 @@ forbidden_modules = [
     "datasets",
 ]
 
+[[tool.importlinter.contracts]]
+name = "Engine workers import only the standard library and their engine"
+type = "forbidden"
+source_modules = ["effeval.runtime.engines.worker"]
+forbidden_modules = [
+    "effeval.core",
+    "effeval.runtime.hf",
+    "effeval.runtime.speculative",
+    "effeval.runtime.determinism",
+    "effeval.evaluators",
+    "effeval.metrics",
+    "effeval.store",
+    "torch",
+    "transformers",
+    "numpy",
+    "pydantic",
+]
+
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Body"]

@@ -637,6 +637,7 @@ def _check_decoding(
         )
     if spec.runtime.name != "hf":
         _check_engine_runtime(raw, spec, catalog, res)
+        _check_static_cache_capacity(spec, res, speculative, hint="raise runtime.static_cache_tokens")
     elif (speculative or timed) and spec.runtime.cuda_graphs:
         _check_static_cache_rules(spec, res)
         _check_static_cache_capacity(spec, res, speculative)
@@ -689,13 +690,21 @@ def _check_static_cache_rules(spec: RunSpec, res: Resolution) -> None:
             )
 
 
-def _check_static_cache_capacity(spec: RunSpec, res: Resolution, speculative: bool) -> None:
-    """A generation must fit the static KV cache: its prompt plus max_new_tokens - 1 positions.
+def _check_static_cache_capacity(
+    spec: RunSpec,
+    res: Resolution,
+    speculative: bool,
+    hint: str = "raise runtime.static_cache_tokens, or set runtime.cuda_graphs: false",
+) -> None:
+    """A generation must fit the static KV cache (an engine's context length): its prompt plus
+    max_new_tokens - 1 positions.
 
     The prompt length is unknown here, so the check uses one prompt token: it rejects only tasks that cannot
     fit whatever the prompt is. The runtime fails a longer generation with the same hint.
     """
     capacity = spec.runtime.static_cache_tokens
+    runtime = spec.runtime.name
+    where = "the static KV cache" if runtime == "hf" else f"the {runtime} engine's context"
     for index, plan in enumerate(res.tasks):
         if plan.mode != Mode.SPEED and (not speculative or plan.mode == Mode.LOGLIKELIHOOD):
             continue
@@ -704,9 +713,9 @@ def _check_static_cache_capacity(spec: RunSpec, res: Resolution, speculative: bo
             res.error(
                 "runtime.static_cache_capacity",
                 f"{plan.task.name} generates up to {budget} tokens after its prompt, more than the "
-                f"{capacity} positions of the static KV cache",
+                f"{capacity} positions of {where}",
                 [f"tasks[{index}].params.max_new_tokens", "runtime.static_cache_tokens"],
-                hint="raise runtime.static_cache_tokens, or set runtime.cuda_graphs: false",
+                hint=hint,
             )
 
 
@@ -789,17 +798,33 @@ def _check_speculative(spec: RunSpec, entry: ModelEntry, catalog: Catalog, res: 
 def _check_engine_runtime(raw: dict[str, Any], spec: RunSpec, catalog: Catalog, res: Resolution) -> None:
     """vLLM and SGLang load plain checkpoints: no PyTorch-hook methods, no transformers settings."""
     runtime = spec.runtime.name
-    if isinstance(raw.get("runtime"), dict) and raw["runtime"].get("cuda_graphs") is True:
-        res.note(
-            "runtime.ineffective",
-            f"runtime.cuda_graphs only applies to the hf runtime, not {runtime}",
-            ["runtime.cuda_graphs"],
-        )
     if isinstance(raw.get("runtime"), dict) and "attn_implementation" in raw["runtime"]:
         res.error(
             "runtime.attn_unsupported",
             f"runtime.attn_implementation only applies to the hf runtime, not {runtime}",
             ["runtime.attn_implementation"],
+        )
+    for index, plan in enumerate(res.tasks):
+        if spec.generation.do_sample if plan.do_sample is None else plan.do_sample:
+            res.error(
+                "runtime.sampling_later",
+                f"sampling is not available on the {runtime} runtime yet; only greedy decoding is",
+                ["generation.do_sample", f"tasks[{index}].params.do_sample"],
+                hint="use do_sample false",
+            )
+    if res.draft_model is not None and res.model is not None and res.draft_model.dtype != res.model.dtype:
+        res.error(
+            "runtime.draft_dtype",
+            f"{runtime} runs the draft model in the target's dtype, but the draft is "
+            f"{res.draft_model.dtype} and the target {res.model.dtype}",
+            ["decoding.draft.model.dtype", "model.dtype"],
+            hint="give the draft the target's dtype",
+        )
+    if spec.hardware.count != 1:
+        res.error(
+            "runtime.single_gpu",
+            f"the {runtime} runtime runs on one GPU, got hardware.count {spec.hardware.count}",
+            ["hardware.count"],
         )
     roles = [("", spec.method.name, spec.preprocess)]
     if spec.decoding is not None and spec.decoding.draft is not None:

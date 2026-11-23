@@ -9,20 +9,9 @@ import torch
 from effeval.core.catalog import DEFAULT_SAMPLING_TEMPERATURE
 from effeval.core.spec import JobSpec
 from effeval.core.types import InProcess
-from effeval.evaluators.speed_backend import Generation
+from effeval.evaluators.speed_backend import Generation, decoder_description
 from effeval.runtime import hf
 from effeval.runtime.speculative import AutoregressiveDecoder, TokenSampler
-
-
-def _eos_ids(handle: InProcess) -> frozenset[int]:
-    ids = set()
-    eos = handle.tokenizer.eos_token_id
-    if eos is not None:
-        ids.add(eos)
-    config_eos = getattr(handle.model.generation_config, "eos_token_id", None)
-    if config_eos is not None:
-        ids.update(config_eos if isinstance(config_eos, (list, tuple)) else [config_eos])
-    return frozenset(ids)
 
 
 def _cuda_devices(models: list[Any]) -> list[torch.device]:
@@ -60,7 +49,7 @@ class InProcessBackend:
             self._decoder.prepare()
         self._device = handle.model.get_input_embeddings().weight.device
         self._cuda_devices = _cuda_devices(self._decoder.models)
-        self._eos_ids = _eos_ids(handle)
+        self._eos_ids = hf.stop_token_ids(handle.tokenizer, handle.model.generation_config)
         self._job = job
         generation = job.generation
         self._temperature = None
@@ -72,23 +61,12 @@ class InProcessBackend:
         self.sampled = not self._sampler.greedy
 
     def describe(self) -> dict[str, Any]:
-        decoding = self._job.decoding
-        decoder = (
-            "autoregressive"
-            if decoding is None
-            else {
-                "mode": decoding.mode,
-                "draft": decoding.draft.model.name,
-                "num_speculative_tokens": decoding.num_speculative_tokens,
-                "verification": decoding.verification,
-            }
-        )
         timing = "perf_counter around each turn's decoder.generate; excludes tokenization"
         if self._cuda_devices:
             timing = "synchronize + " + timing
         names = [torch.cuda.get_device_name(d) for d in self._cuda_devices]
         return {
-            "decoder": decoder,
+            "decoder": decoder_description(self._job),
             "decode_cache": self._decode_cache(),
             "device": ", ".join(names) if names else "cpu",
             "timing": timing,

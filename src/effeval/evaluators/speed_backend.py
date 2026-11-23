@@ -10,6 +10,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from effeval.core.spec import JobSpec
+
 
 @dataclass(frozen=True)
 class Generation:
@@ -39,7 +41,11 @@ class SpeedBackend(Protocol):
     """Whether generation samples instead of decoding greedily."""
 
     def describe(self) -> dict[str, Any]:
-        """Protocol entries of this backend: `decoder`, `device`, `timing` and `temperature`."""
+        """Protocol entries of this backend: `decoder`, `device`, `timing` and `temperature`.
+
+        Optional keys: `decode_cache` (copied into the protocol) and `torch_determinism` (bool, default true;
+        false when the backend does not run under effeval's torch determinism settings).
+        """
         ...
 
     def generate(self, prompt_ids: list[int], max_new_tokens: int) -> Generation:
@@ -67,3 +73,16 @@ class SpeedBackend(Protocol):
         """Peak memory in GB since `reset_peak_memory`, summed over every device the backend uses, or None
         when the backend cannot tell."""
         ...
+
+
+def decoder_description(job: JobSpec) -> str | dict[str, Any]:
+    """The protocol's `decoder` entry for `job`: "autoregressive" or the speculative decoding settings."""
+    decoding = job.decoding
+    if decoding is None:
+        return "autoregressive"
+    return {
+        "mode": decoding.mode,
+        "draft": decoding.draft.model.name,
+        "num_speculative_tokens": decoding.num_speculative_tokens,
+        "verification": decoding.verification,
+    }

@@ -66,6 +66,7 @@ class EngineHandle:
     client: Any
     tokenizer: Any
     runtime: str
+    device: str
     kind: ClassVar[HandleKind] = HandleKind.ENGINE
 
 

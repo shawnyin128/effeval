@@ -194,3 +194,15 @@ def prepare_speculative(
     )
     decoder.prepare()
     return replace(target, decoder=decoder), drafted.preprocess_applied
+
+
+def stop_token_ids(tokenizer: Any, generation_config: Any) -> frozenset[int]:
+    """The ids that end a generation: the tokenizer's `eos_token_id` plus the generation config's
+    `eos_token_id` (an int or a list), either of which may be absent."""
+    ids = set()
+    if tokenizer.eos_token_id is not None:
+        ids.add(tokenizer.eos_token_id)
+    config_eos = getattr(generation_config, "eos_token_id", None)
+    if config_eos is not None:
+        ids.update(config_eos if isinstance(config_eos, (list, tuple)) else [config_eos])
+    return frozenset(ids)

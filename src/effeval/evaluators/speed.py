@@ -195,15 +195,15 @@ def measure(
 
 
 def make_backend(handle: InProcess | EngineHandle | None, job: JobSpec) -> SpeedBackend:
-    """The `SpeedBackend` for a model handle. Raises NotImplementedError for an engine handle (WP8)."""
+    """The `SpeedBackend` for a model handle; raises TypeError for anything else."""
     if isinstance(handle, InProcess):
         from effeval.evaluators._speed_inprocess import InProcessBackend  # imports torch
 
         return InProcessBackend(handle, job)
     if isinstance(handle, EngineHandle):
-        raise NotImplementedError(
-            f"speed on the {handle.runtime} engine is not implemented yet: the engine SpeedBackend is WP8"
-        )
+        from effeval.evaluators._speed_engine import EngineBackend
+
+        return EngineBackend(handle, job)
     raise TypeError(f"speed needs a model handle, got {type(handle).__name__}")
 
 
@@ -213,7 +213,9 @@ class Speed:
     def list_tasks(self) -> None:
         return None
 
-    def run(self, handle: InProcess | None, job: JobSpec, task: TaskDef, workdir: Path) -> QualityResult:
+    def run(
+        self, handle: InProcess | EngineHandle | None, job: JobSpec, task: TaskDef, workdir: Path
+    ) -> QualityResult:
         return evaluate(make_backend(handle, job), job, task)
 
 
@@ -265,7 +267,11 @@ def evaluate(backend: SpeedBackend, job: JobSpec, task: TaskDef) -> QualityResul
     if "decode_cache" in described:
         protocol["decode_cache"] = described["decode_cache"]
     if prompt_set.info.name == "spec_bench":
-        protocol["deviations_from_spec_bench"] = list(SPEC_BENCH_DEVIATIONS)
+        protocol["deviations_from_spec_bench"] = [
+            d
+            for d in SPEC_BENCH_DEVIATIONS
+            if described.get("torch_determinism", True) or not d.startswith("determinism:")
+        ]
     return QualityResult(
         metrics=metrics,
         samples=samples,

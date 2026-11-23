@@ -7,12 +7,14 @@ Models are instantiated on the meta device, so these checks download configs but
 from __future__ import annotations
 
 import importlib
+import os
 
 import torch
 from transformers import AutoConfig
 
 from effeval.core import evaluator as evaluators
 from effeval.core.catalog import Catalog
+from effeval.core.engines import ENGINES
 from effeval.core.fragments import QuantRule
 from effeval.core.spec import JobSpec, Plan, ResolvedMethod, ResolvedModel
 from effeval.core.types import Issue, Severity
@@ -112,6 +114,18 @@ def check(plan: Plan, catalog: Catalog) -> list[Issue]:
                     "evaluator.library_mismatch",
                     f"{spec.name}: {mismatch}",
                     hint="install the pinned version, or re-plan with a listing synced from this node",
+                )
+            )
+
+    for name in sorted({job.spec.runtime.name for job in plan.jobs} & ENGINES.keys()):
+        env = ENGINES[name].python_env
+        if not os.path.isfile(os.environ.get(env, "")):
+            issues.append(
+                _error(
+                    "runtime.engine_unavailable",
+                    f"the {name} runtime needs the Python of its own environment, but {env} does not name "
+                    "an existing file on this node",
+                    hint=f"set {env} to the engine environment's python executable",
                 )
             )
 

@@ -259,10 +259,19 @@ def test_the_record_keeps_the_target_attention_and_the_job_spec(monkeypatch, tmp
     assert all(r.env.attn_implementation == "sdpa" for r in records)
 
 
-def test_an_engine_runtime_is_not_runnable_yet(dirs):
-    spec = job_spec(dirs["target"], dirs["draft"]).model_copy(update={"runtime": RuntimeSpec(name="vllm")})
-    with pytest.raises(NotImplementedError, match="vllm"):
-        run_module.prepare_models(spec, builtin_catalog())
+@pytest.mark.parametrize(
+    ("runtime", "env_var"), [("vllm", "EFFEVAL_VLLM_PYTHON"), ("sglang", "EFFEVAL_SGLANG_PYTHON")]
+)
+def test_an_engine_runtime_without_its_python_fails_naming_the_env_var(
+    dirs, monkeypatch, tmp_path, runtime, env_var
+):
+    monkeypatch.delenv(env_var, raising=False)
+    spec = job_spec(dirs["target"], dirs["draft"]).model_copy(update={"runtime": RuntimeSpec(name=runtime)})
+    with pytest.raises(RuntimeError, match=env_var):
+        run_module.prepare_models(spec, builtin_catalog(), tmp_path)
+    monkeypatch.setenv(env_var, str(tmp_path / "missing-python"))
+    with pytest.raises(RuntimeError, match=env_var):
+        run_module.prepare_models(spec, builtin_catalog(), tmp_path)
 
 
 def test_node_checks_cover_the_draft_role(monkeypatch, catalog_and_plan):

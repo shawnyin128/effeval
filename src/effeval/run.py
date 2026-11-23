@@ -29,10 +29,20 @@ from effeval.core import bundle as bundle_io
 from effeval.core import evaluator as evaluators
 from effeval.core.catalog import Catalog
 from effeval.core.spec import Job, JobSpec, Plan
-from effeval.core.types import EnvFingerprint, Fidelity, InProcess, QualityResult, Record, utc_now
+from effeval.core.types import (
+    EngineHandle,
+    EnvFingerprint,
+    Fidelity,
+    Handle,
+    InProcess,
+    QualityResult,
+    Record,
+    utc_now,
+)
 from effeval.metrics import derived
 from effeval.plan import model_group_key
 from effeval.runtime import determinism, hf
+from effeval.runtime.engines.prepare import prepare_engine
 from effeval.store.http import ClientError, HttpClient
 
 PACKAGES = ("effeval", "torch", "transformers", "datasets", "accelerate", "lm_eval", "evalscope", "marlin")
@@ -126,16 +136,17 @@ def write_samples(result: QualityResult, path: Path) -> None:
     path.write_bytes(gzip.compress(lines.encode("utf-8"), mtime=0))
 
 
-def prepare_models(spec: JobSpec, catalog: Catalog) -> tuple[InProcess, dict[str, object]]:
+def prepare_models(spec: JobSpec, catalog: Catalog, workdir: Path) -> tuple[Handle, dict[str, object]]:
     """Prepare the models a job's spec calls for.
 
     Returns the handle and the protocol entries preparation adds.
 
-    The provider and the decoding mode of the spec choose the path: speculative decoding prepares target and
-    draft together, plain decoding only the target.
+    The provider and the decoding mode of the spec choose the path: an engine runtime starts its worker with
+    its files in `workdir`; transformers prepares target and draft together for speculative decoding, only
+    the target for plain decoding.
     """
     if spec.runtime.name != "hf":
-        raise NotImplementedError(f"the {spec.runtime.name} runtime has no client yet")
+        return prepare_engine(spec, workdir)
     if spec.decoding is not None:
         handle, draft_applied = hf.prepare_speculative(spec, catalog.manifests)
         return handle, {} if draft_applied is None else {"draft_preprocess_applied": draft_applied}
@@ -230,7 +241,7 @@ def run_plan(
         failed.extend(f"{job.spec.task.name} ({job.job_id}) {stage}: {exc}" for job in jobs)
 
     def run_job(
-        job: Job, handle: InProcess | None, attn: str | None, prepare_s: float, prepared: dict[str, object]
+        job: Job, handle: Handle | None, attn: str | None, prepare_s: float, prepared: dict[str, object]
     ) -> None:
         determinism.apply(job.spec.determinism)
         beat(job, "running")
@@ -238,6 +249,7 @@ def run_plan(
         workdir = out_dir / plan.plan_id / job.job_id
         log(f"[{job.role}] {task.name} ({job.spec.task.mode.value}) via {job.spec.evaluator.name}")
         start = time.perf_counter()
+        raw_before = handle.client.raw_counters() if isinstance(handle, EngineHandle) else None
         try:
             result = evaluators.load(job.spec.evaluator.name).run(handle, job.spec, task, workdir)
         except Exception as exc:
@@ -252,7 +264,13 @@ def run_plan(
         extra = [m for m in job.spec.metrics if m not in result.metrics]
         metrics = {**result.metrics, **derived.compute(extra, result.samples)}
         protocol = {**result.protocol, **prepared}
-        if handle is not None and handle.preprocess_applied is not None:
+        if raw_before is not None:
+            raw_after = handle.client.raw_counters()
+            protocol["engine"] = {
+                **prepared["engine"],
+                "raw_counters": {name: raw_after[name] - raw_before[name] for name in raw_after},
+            }
+        if isinstance(handle, InProcess) and handle.preprocess_applied is not None:
             protocol["preprocess_applied"] = handle.preprocess_applied
         samples_path = workdir / "per_sample.jsonl.gz"
         write_samples(result, samples_path)
@@ -318,16 +336,27 @@ def run_plan(
             f"preparing {first.spec.model.name} with {first.spec.method.name}"
             + ("" if draft is None else f" and draft {draft.model.name} with {draft.method.name}")
         )
+        engine_dir = out_dir / plan.plan_id / f"engine-{first.job_id}"
         start = time.perf_counter()
         try:
-            handle, prepared = prepare_models(first.spec, catalog)
+            handle, prepared = prepare_models(first.spec, catalog, engine_dir)
         except Exception as exc:
             give_up(pending, "prepare", exc)
             continue
         prepare_s = time.perf_counter() - start
-        attn = handle.model.config._attn_implementation
-        for index, job in enumerate(pending):
-            run_job(job, handle, attn, prepare_s if index == 0 else 0.0, prepared)
+        attn = handle.model.config._attn_implementation if isinstance(handle, InProcess) else None
+        try:
+            for index, job in enumerate(pending):
+                run_job(job, handle, attn, prepare_s if index == 0 else 0.0, prepared)
+        except BaseException:
+            if isinstance(handle, EngineHandle):
+                try:
+                    handle.client.close()
+                except Exception as close_exc:
+                    log(f"closing the engine failed: {type(close_exc).__name__}: {close_exc}")
+            raise
+        if isinstance(handle, EngineHandle):
+            handle.client.close()
         del handle
         gc.collect()
         if torch.cuda.is_available():

@@ -91,12 +91,24 @@ def test_no_static_cache_error_for_a_quality_job_with_sequence_options():
     assert "runtime.static_cache_unsupported" not in check(raw)
 
 
-def test_cuda_graphs_on_another_runtime_is_info_only_when_set_explicitly():
-    explicit = validate(speed_spec(runtime={"name": "vllm", "cuda_graphs": True}), _catalog())
-    assert "runtime.ineffective" in codes(explicit, "info")
-    assert "runtime.ineffective" not in codes(explicit)
-    implicit = validate(speed_spec(runtime={"name": "vllm"}), _catalog())
-    assert "runtime.ineffective" not in codes(implicit, "info")
+def test_cuda_graphs_on_an_engine_is_not_flagged_and_changes_identity():
+    for runtime in ({"name": "vllm", "cuda_graphs": True}, {"name": "vllm", "cuda_graphs": False}):
+        issues = validate(speed_spec(runtime=runtime), _catalog())
+        assert "runtime.ineffective" not in codes(issues) + codes(issues, "info") + codes(issues, "warning")
+    on = role(frozen(speed_spec(runtime={"name": "vllm", "cuda_graphs": True}))[0], "main")
+    off = role(frozen(speed_spec(runtime={"name": "vllm", "cuda_graphs": False}))[0], "main")
+    assert on.run_key != off.run_key
+
+
+def test_engine_capacity_is_checked_with_cuda_graphs_off():
+    def issue(budget):
+        runtime = {"name": "vllm", "cuda_graphs": False}
+        return capacity_issue(speed_spec(generation={"max_new_tokens": budget}, runtime=runtime))
+
+    over = issue(4097)
+    assert over is not None and "runtime.static_cache_tokens" in over.hint
+    assert "cuda_graphs" not in over.hint
+    assert issue(4096) is None
 
 
 MX_E4M3 = {"type": "mx", "element": "e2m1", "block_size": 16, "scale": "e4m3"}

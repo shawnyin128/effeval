@@ -54,14 +54,14 @@ class RuntimeSpec(StrictModel):
     )
     cuda_graphs: bool = Field(
         default=True,
-        description="effeval's own decoders (speed tasks, speculative decoding): decode with a static KV "
-        "cache and CUDA graphs; false decodes with the dynamic cache. Only used by hf.",
+        description="hf: static KV cache and CUDA graphs for effeval's decoders; vllm: false sets "
+        "enforce_eager (also disables torch.compile); sglang: false sets disable_cuda_graph.",
     )
     static_cache_tokens: int = Field(
         default=4096,
         ge=256,
-        description="Cache positions per generation (the prompt plus max_new_tokens, less one); a longer "
-        "generation fails. Only used by hf with cuda_graphs.",
+        description="Cache positions per generation (prompt + max_new_tokens - 1). hf: static cache size "
+        "with cuda_graphs; vllm/sglang: the engine context length is this plus one.",
     )
 
 
@@ -319,10 +319,14 @@ def runtime_excluded_fields(spec: JobSpec) -> set[str] | None:
 
 
 def runtime_identity(spec: JobSpec) -> dict[str, Any]:
-    """The runtime part of a job's identity: the RuntimeSpec less excluded fields for hf, else its name."""
+    """The runtime part of a job's identity.
+
+    hf: the RuntimeSpec less excluded fields. Engines (always speed jobs): name, cuda_graphs and
+    static_cache_tokens.
+    """
     if spec.runtime.name == "hf":
         return spec.runtime.model_dump(mode="json", exclude=runtime_excluded_fields(spec))
-    return {"name": spec.runtime.name}
+    return spec.runtime.model_dump(mode="json", include={"name", "cuda_graphs", "static_cache_tokens"})
 
 
 def run_key(spec: JobSpec) -> str:
