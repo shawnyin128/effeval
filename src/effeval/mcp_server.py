@@ -65,8 +65,8 @@ can run (vllm and sglang need their own Python configured); those two run only s
 search_tasks). Timed (speed) tasks need "hardware": {"gpu": ...} and "generation": {"batch_size": 1}.
 Each job is compared with plain
 autoregressive decoding of the same target on the same provider, which runs as its reference. A table row
-takes "decoding" like a RunSpec; the draft model, k and provider are config columns of rows and records
-("draft", "decoding", "runtime"), not part of the method label.
+takes "decoding" and "runtime" like a RunSpec; the draft model, k and provider are config columns of rows and
+records ("draft", "decoding", "runtime"), not part of the method label.
 """
 
 DESCRIPTION_CHARS = 160

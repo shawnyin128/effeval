@@ -357,6 +357,7 @@ def test_guide_explains_speculative_decoding_and_describe_lists_the_runtimes(mcp
 
     words = ("speculative_decoding", "num_speculative_tokens", "runtimes", "vllm", "sglang")
     assert all(w in GUIDE for w in words)
+    assert 'takes "decoding" and "runtime" like a RunSpec' in GUIDE
     runtimes = call("describe").structured_content["runtimes"]
     assert list(runtimes) == ["hf", "vllm", "sglang"] and runtimes["hf"]["available"] is True
 

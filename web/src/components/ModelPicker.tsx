@@ -6,11 +6,13 @@ import { useT } from "../i18n";
 import { Badge, formatParams } from "../ui/display";
 
 /** Searchable picker over the global model registry. */
-export function ModelPicker({ models, value, onChange, invalid }: {
+export function ModelPicker({ models, value, onChange, invalid, unavailable }: {
   models: Record<string, ModelEntry>;
   value: string;
   onChange: (code: string) => void;
   invalid?: boolean;
+  /** Models that cannot be chosen, by code, with the reason shown in place of the checkpoint. */
+  unavailable?: Record<string, string>;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -28,7 +30,7 @@ export function ModelPicker({ models, value, onChange, invalid }: {
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button className="select-trigger" style={invalid ? { borderColor: "var(--red)" } : undefined}>
+        <button className="select-trigger" style={invalid || unavailable?.[value] ? { borderColor: "var(--red)" } : undefined}>
           {selected ? (
             <span className="row gap-2 nowrap-row" style={{ minWidth: 0 }}>
               <span className="mono text-sm">{selected.code}</span>
@@ -51,12 +53,16 @@ export function ModelPicker({ models, value, onChange, invalid }: {
               <div key={architecture}>
                 <div className="menu-label row gap-2">{architecture}<span className="faint">{entries.length}</span></div>
                 {entries.map((m) => (
-              <button key={m.code} className="menu-item" style={{ width: "100%", border: "none", background: "none", font: "inherit", padding: "7px 10px", gap: 10 }}
-                onClick={() => { onChange(m.code); setOpen(false); setQuery(""); }}>
+              <button key={m.code} className="menu-item" disabled={!!unavailable?.[m.code]}
+                style={{ width: "100%", border: "none", background: "none", font: "inherit", padding: "7px 10px", gap: 10,
+                  ...(unavailable?.[m.code] ? { opacity: 0.55, cursor: "not-allowed" } : {}) }}
+                onClick={() => { if (unavailable?.[m.code]) return; onChange(m.code); setOpen(false); setQuery(""); }}>
                 <span style={{ width: 16, display: "inline-flex" }}>{m.code === value && <Check size={14} />}</span>
                 <span className="grow" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
                   <span className="mono text-sm">{m.code}</span>
-                  <span className="faint tiny">{m.checkpoint}</span>
+                  {unavailable?.[m.code]
+                    ? <span className="faint tiny" style={{ color: "var(--orange)" }}>{unavailable[m.code]}</span>
+                    : <span className="faint tiny">{m.checkpoint}</span>}
                 </span>
                 <Badge mono>{formatParams(m.params)}</Badge>
                 {m.tie_word_embeddings && <Badge>{t("tied")}</Badge>}

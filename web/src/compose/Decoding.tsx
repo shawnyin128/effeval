@@ -1,5 +1,6 @@
 import type { Describe, ModelEntry } from "../api";
 import { useT } from "../i18n";
+import { draftProblem, type DraftProblem } from "./draftRules";
 import { Field, Input, Segmented } from "../ui/controls";
 
 type Spec = Record<string, any>;
@@ -30,17 +31,15 @@ export function providerLabel(describe: Describe, name: string | undefined): str
   return describe.runtimes?.[key]?.label ?? (key === "hf" ? "transformers" : key);
 }
 
-/** Models a draft may be: those with the target's vocabulary (all of them while the target's vocabulary is unknown). */
-export function draftChoices(models: Record<string, ModelEntry>, target: string | undefined): Record<string, ModelEntry> {
-  const vocab = target ? models[target]?.shape?.vocab : undefined;
-  if (vocab === undefined) return models;
-  return Object.fromEntries(Object.entries(models).filter(([, m]) => m.shape?.vocab === vocab));
+/** Why the spec's draft model cannot pair with its target model, or null (also when there is no draft). */
+export function specDraftProblem(models: Record<string, ModelEntry>, spec: Spec): DraftProblem | null {
+  const draft = spec.decoding?.draft?.model?.name;
+  return draft ? draftProblem(models, spec.model?.name, draft, {}) : null;
 }
 
-/** The spec without its draft model when the draft no longer shares the target's vocabulary; the same spec otherwise. */
+/** The spec without its draft model when the draft cannot pair with the target; the same spec otherwise. */
 export function dropIncompatibleDraft(models: Record<string, ModelEntry>, spec: Spec): Spec {
-  const draft = spec.decoding?.draft?.model?.name;
-  if (!draft || draftChoices(models, spec.model?.name)[draft]) return spec;
+  if (!specDraftProblem(models, spec)) return spec;
   const { draft: _drop, ...decoding } = spec.decoding;
   return { ...spec, decoding };
 }
@@ -54,6 +53,10 @@ export function Decoding({ spec, describe, update, err }: {
 }) {
   const t = useT();
   const runtimes = Object.entries(describe.runtimes ?? { hf: { label: "transformers", library: null, available: true } });
+  const missing = runtimes.filter(([, r]) => !r.available).map(([, r]) => r.label);
+  const engine = !!spec.runtime?.name && spec.runtime.name !== "hf";
+  const provider = providerLabel(describe, spec.runtime?.name);
+  const targetDtype: string | undefined = spec.model?.dtype ?? describe.models[spec.model?.name]?.dtype;
   return (
     <>
       <div className="grid-2">
@@ -65,6 +68,7 @@ export function Decoding({ spec, describe, update, err }: {
               disabled: !r.available,
               title: r.available ? undefined : t("{provider} is not available on this machine", { provider: r.label }),
             }))} />
+          {missing.length > 0 && <div className="small muted mt-3">{t("Not set up on this machine: {providers}.", { providers: missing.join(", ") })}</div>}
         </Field>
         <Field label={t("Draft tokens per step (k)")} error={err("decoding.num_speculative_tokens")}>
           <Input type="number" min={1} max={MAX_SPECULATIVE_TOKENS} step={1} value={spec.decoding?.num_speculative_tokens ?? ""} placeholder="4"
@@ -74,6 +78,17 @@ export function Decoding({ spec, describe, update, err }: {
       <p className="small muted mt-3">
         {t("The draft proposes k tokens per step and the target verifies them; results are compared with the target's own autoregressive decoding.")}
       </p>
+      <p className="small muted mt-3">{t("Verification is greedy for now.")}</p>
+      {engine && (
+        <div className="small muted mt-3">
+          <div>{t("{provider} runs speed tasks (speed/…) only.", { provider })}</div>
+          <div>{t("Greedy decoding only (do_sample false).")}</div>
+          <div>{t("One GPU per run.")}</div>
+          <div>{t("No effeval methods or preprocessing: plain checkpoints.")}</div>
+          {targetDtype && <div>{t("The draft runs in the target's precision: {dtype}.", { dtype: targetDtype })}</div>}
+          <div>{t("Not reported: TTFT, peak memory, draft time share.")}</div>
+        </div>
+      )}
     </>
   );
 }

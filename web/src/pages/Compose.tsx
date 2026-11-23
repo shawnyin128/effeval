@@ -8,7 +8,8 @@ import { DestinationSelect, useDestination } from "./Projects";
 import { useT } from "../i18n";
 import { ModelPicker } from "../components/ModelPicker";
 import { MethodConfig, effectiveRules, hasFieldConfig, isRulesPath, normalizePath, problemAt, ruleSentence, type Problems } from "../compose/MethodConfig";
-import { Decoding, dropIncompatibleDraft, draftChoices, getIn, providerLabel, rolesOf, usesDecoding } from "../compose/Decoding";
+import { Decoding, dropIncompatibleDraft, getIn, providerLabel, rolesOf, specDraftProblem, usesDecoding } from "../compose/Decoding";
+import { alignDraftDtype, draftProblems } from "../compose/draftRules";
 import { Preprocess, effectiveSteps, preprocessLabel, preprocessLines } from "../compose/Preprocess";
 import { StepBar, type StepItem } from "../compose/StepBar";
 import { TaskConfigStep } from "../compose/TaskConfigStep";
@@ -40,11 +41,17 @@ function stepsFor(kind: string, field: string): StepId[] {
 const GENERATION = [["max_new_tokens", "Max new tokens"], ["batch_size", "Batch size"], ["temperature", "Temperature"]] as const;
 
 /** A blank spec: no model chosen yet; the first field and its first builtin method with a paper preset. */
-function initialSpec(describe: Describe): Spec {
-  const field = Object.keys(describe.fields).sort()[0] ?? "";
+/** The method a Field starts with: its first built-in method (preferring one with a default preset), else the Field-independent base. */
+function defaultMethod(describe: Describe, field: string): Spec {
   const methods = Object.values(describe.methods).filter((m) => m.field === field && m.builtin && m.name !== "base");
   const method = methods.find((m) => m.default_preset) ?? methods[0];
-  return { model: { name: "" }, method: { name: method?.name ?? "", preset: method?.default_preset ? "default" : null, config: {} }, field, tasks: [] };
+  if (!method) return { name: "base" };
+  return { name: method.name, preset: method.default_preset ? "default" : null, config: {} };
+}
+
+function initialSpec(describe: Describe): Spec {
+  const field = Object.keys(describe.fields).sort()[0] ?? "";
+  return { model: { name: "" }, method: defaultMethod(describe, field), field, tasks: [] };
 }
 
 function setIn(obj: Spec, path: string[], value: unknown): Spec {
@@ -95,6 +102,24 @@ function explain(issue: Issue, t: ReturnType<typeof useT>): string {
       return t("This draft model is not registered.");
     case "decoding.vocab_mismatch":
       return t("The draft model must have the same vocabulary as the target model.");
+    case "decoding.draft_method_later":
+      return t("The draft runs as a base model: methods and preprocessing on the draft are not supported yet.");
+    case "decoding.sampling_unavailable":
+      return t("Speculative decoding is greedy only for now; set do_sample to false.");
+    case "decoding.no_effect":
+      return t("This task is scored by loglikelihood and never decodes, so speculative decoding has no effect. Pick a generation or speed task.");
+    case "decoding.batch_size":
+      return t("Speculative and timed runs decode one sequence at a time; set Batch size to 1.");
+    case "runtime.sampling_later":
+      return t("vLLM and SGLang run greedy decoding only for now; set do_sample to false.");
+    case "runtime.draft_dtype":
+      return t("vLLM and SGLang run the draft in the target's precision; give both the same precision.");
+    case "runtime.single_gpu":
+      return t("vLLM and SGLang runs use one GPU; set the GPU count to 1.");
+    case "runtime.method_unsupported":
+      return t("vLLM and SGLang run plain checkpoints; methods and preprocessing need the transformers provider.");
+    case "runtime.task_unsupported":
+      return t("vLLM and SGLang run speed tasks (speed/…) only; use transformers for other tasks.");
     case "speed.hardware_required":
       return t("Timed tasks need a Target GPU, so results are comparable. Set it in Run settings.");
     case "mode.task_unsupported":
@@ -185,6 +210,13 @@ export function Compose() {
   const draftName: string = draftRole ? getIn(spec, `${draftRole.path}.name`) ?? "" : "";
   const architecture = model ? describe.architectures[model.architecture] : undefined;
   const update = (path: string, value: unknown) => setSpec((s) => setIn(s, path.split("."), value));
+  const engine = !!spec.runtime?.name && spec.runtime.name !== "hf";
+  const draftDtype: string | undefined = spec.decoding?.draft?.model?.dtype;
+  useEffect(() => {
+    if (decodingField) setSpec((s) => alignDraftDtype(describe.models, s));
+  }, [decodingField, spec.runtime?.name, spec.model?.name, spec.model?.dtype, draftName]);
+  const unavailableDrafts = useMemo(() => Object.fromEntries(
+    Object.entries(draftProblems(describe.models, spec.model?.name, {})).map(([code, p]) => [code, t(p.text, p.vars)])), [describe.models, spec.model?.name, t]);
   const repeats = repeatsOf(spec);
   const presetTasks = (preset?.values.tasks?.value as string[] | undefined) ?? [];
   const { tasks, usingPreset: usingPresetTasks } = selectedTasks(spec.tasks, presetTasks, tasksCleared);
@@ -314,16 +346,20 @@ export function Compose() {
               const chosen: string = getIn(spec, `${role.path}.name`) ?? "";
               return (
                 <Field key={role.path} label={label} error={err(`${role.path}.name`) ?? err(role.path)}
-                  help={isTarget ? undefined : t("Only models with the target's vocabulary are listed.")}>
-                  <ModelPicker models={isTarget ? describe.models : draftChoices(describe.models, spec.model?.name)} value={chosen}
+                  help={isTarget ? undefined : t("Models that cannot be the draft of this target are greyed out with the reason.")}>
+                  <ModelPicker models={describe.models} value={chosen} unavailable={isTarget ? undefined : unavailableDrafts}
                     invalid={invalid.has(`${role.path}.name`)}
                     onChange={(code) => {
                       const next = dropIncompatibleDraft(describe.models, setIn(spec, `${role.path}.name`.split("."), code));
                       if (isTarget && draftName && getIn(next, `${draftRole!.path}.name`) === undefined) {
-                        toast(t("Draft model cleared"), { tone: "warning", description: t("{draft} does not share the vocabulary of {target}.", { draft: draftName, target: code }) });
+                        const why = specDraftProblem(describe.models, setIn(spec, `${role.path}.name`.split("."), code));
+                        toast(t("Draft model cleared"), { tone: "warning", description: why ? t(why.text, why.vars) : undefined });
                       }
                       setSpec(() => next);
                     }} />
+                  {!isTarget && engine && draftDtype && (
+                    <div className="small muted mt-3">{t("Draft precision: {dtype} ({provider} runs the draft in the target's precision).", { dtype: draftDtype, provider: providerLabel(describe, spec.runtime?.name) })}</div>
+                  )}
                 </Field>
               );
             })}
@@ -351,7 +387,13 @@ export function Compose() {
           <div className="choice-grid">
             {Object.values(describe.fields).map((f) => (
               <button key={f.name} type="button" className={`choice ${spec.field === f.name ? "on" : ""}`} aria-pressed={spec.field === f.name}
-                onClick={() => setSpec((s) => selectField(describe, s, f.name))}>
+                onClick={() => {
+                  const next = selectField(describe, spec, f.name);
+                  setSpec(next);
+                  if (next.method !== spec.method) {
+                    toast(t("Method changed to {method}", { method: next.method.name }), { tone: "warning", description: t("{from} belongs to a different Field than {field}.", { from: spec.method.name, field: f.name }) });
+                  }
+                }}>
                 <span className="strong">{f.name}</span>
                 <span className="small muted">{f.description}</span>
               </button>
@@ -478,6 +520,7 @@ export function Compose() {
                   <dt>{t("Precision")}</dt><dd className="mono">{spec.model?.dtype ?? model?.dtype ?? "—"}</dd>
                   {model && <><dt>{t("Checkpoint")}</dt><dd className="mono small">{model.checkpoint}</dd></>}
                   {draftRole && <><dt>{t("Draft model")}</dt><dd className="mono">{draftName || "—"}</dd></>}
+                  {draftDtype && <><dt>{t("Draft precision")}</dt><dd className="mono">{draftDtype}</dd></>}
                 </dl>
               </ReviewGroup>
               <ReviewGroup title={t("Field")} onEdit={() => goto("field")}>
@@ -637,9 +680,11 @@ export function Compose() {
 }
 
 
-/** The spec after choosing a Field: only a Field with a draft role keeps a decoding and a provider, and starts as speculative. */
+/** The spec after choosing a Field: only a Field with a draft role keeps a decoding and a provider, and starts as speculative; a method of another Field is replaced by the Field's default method. */
 function selectField(describe: Describe, spec: Spec, field: string): Spec {
-  const { decoding: _drop, ...rest } = setIn(spec, ["field"], field);
+  const manifest = describe.methods[spec.method?.name];
+  const foreign = !!manifest && manifest.field !== field && manifest.field !== "any";
+  const { decoding: _drop, ...rest } = setIn(foreign ? { ...spec, method: defaultMethod(describe, field) } : spec, ["field"], field);
   if (usesDecoding(rolesOf(describe, field))) return { ...rest, decoding: spec.decoding ?? { mode: "speculative" } };
   return setIn(rest, ["runtime", "name"], undefined);
 }

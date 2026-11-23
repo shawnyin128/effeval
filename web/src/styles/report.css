@@ -152,3 +152,5 @@
 .report-note.warning { background: var(--orange-fill); color: var(--orange); }
 .limit-tag.inline { display: inline-block; margin: 0; }
 .xt-grid .limit-tag { margin: 2px auto; }
+.xt-grid .xt-config { width: 104px; overflow: hidden; text-overflow: ellipsis; font-size: var(--text-xs); color: var(--text-2); }
+.xt-grid .xt-config.mono { font-family: var(--font-mono); }

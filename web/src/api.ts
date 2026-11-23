@@ -213,7 +213,7 @@ export interface Describe {
   task_catalogs: { evaluator: string; library_version: string | null; tasks: number; uploaded_by: string; created_at: string }[];
   gpus: Record<string, { name: string; aliases: string[] }>;
   /** Inference providers by RunSpec `runtime.name`; `available` is whether this machine can run it. */
-  runtimes?: Record<string, { label: string; library: string | null; available: boolean }>;
+  runtimes?: Record<string, { label: string; library: string | null; available: boolean; python_env?: string }>;
   comparative_metrics: Record<string, string>;
   models: Record<string, ModelEntry>;
   architectures: Record<string, Architecture>;
@@ -340,6 +340,10 @@ export interface Cell {
   repeats?: Cell[];
   /** Sample std (full-precision decimal, null for one result) and number of results per metric of a repeated run. */
   spread?: Record<string, { std: string | null; n: number }>;
+  /** Speed comparatives (speedup, output_match, ...) of the cell's record against its autoregressive reference. */
+  comparisons?: Record<string, string>;
+  /** Sample std and number of results per comparative of a repeated run. */
+  comparison_spread?: Record<string, { std: string | null; n: number }>;
 }
 
 /** One planned job and the stored result covering it, if any (POST /api/reuse-preview). */
@@ -362,7 +366,7 @@ export interface TableDefinition {
   field: string;
   models: string[];
   tasks: (string | TaskRef)[];
-  rows: { label: string; method: { name: string; preset?: string | null; config?: Record<string, unknown> }; preprocess?: PreprocessSpec | string | null; decoding?: Record<string, unknown> | null }[];
+  rows: { label: string; method: { name: string; preset?: string | null; config?: Record<string, unknown> }; preprocess?: PreprocessSpec | string | null; decoding?: Record<string, unknown> | null; runtime?: Record<string, unknown> | null }[];
   shared: Record<string, unknown>;
 }
 

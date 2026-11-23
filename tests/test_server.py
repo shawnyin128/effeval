@@ -774,7 +774,7 @@ def test_server_backfills_requested_derived_metrics_and_flags_undeclared_ones(se
 
 
 def stored_comparisons(data_dir, record_id):
-    """Comparison values the server stores for a record; the API no longer shows them."""
+    """Comparison values the server stores for a record; the API shows only the speed ones, in table cells."""
     from effeval.store.sqlite import SqliteStore
 
     return SqliteStore(data_dir).comparisons(record_id)["values"]
@@ -1627,6 +1627,142 @@ def test_table_rows_take_a_decoding_shown_as_config_columns_not_in_the_label(ser
     ).json()
     row = next(r for r in unlabelled["blocks"][0]["rows"] if r["key"] == "row0")
     assert "qwen3-0.6b" not in row["label"] and "k=" not in row["label"] and row["decoding"]["k"] == 3
+
+
+def speed_table(shared=None, rows=None):
+    def decoding(k):
+        return {"mode": "speculative", "draft": {"model": "qwen3-0.6b"}, "num_speculative_tokens": k}
+
+    return {
+        "name": "spec",
+        "field": "speculative_decoding",
+        "models": ["qwen3-8b"],
+        "tasks": ["speed/spec_bench"],
+        "rows": rows or [{"label": "k4", "method": {"name": "base"}, "decoding": decoding(4)}],
+        "shared": {"hardware": {"gpu": "H100-SXM"}, **(shared or {})},
+    }
+
+
+def speed_jobs(client, view):
+    """Plan jobs of the speed cells of the table's rows, as (row key -> list of jobs, in seed order)."""
+    task = "speed/spec_bench"
+    rows = {r["key"]: r for r in view["blocks"][0]["rows"]}
+    keys = [p["run_key"] for r in rows.values() for p in r["cells"][task].get("repeats", [r["cells"][task]])]
+    url = f"/api/projects/p/tables/{view['table_id']}/command"
+    return client.post(url, json={"run_keys": keys}).json()["plan"]["jobs"]
+
+
+def spec_cells(view):
+    return {r["key"]: r["cells"]["speed/spec_bench"] for r in view["blocks"][0]["rows"]}
+
+
+def test_table_cells_carry_the_speed_comparisons_of_their_record(server, tmp_path):
+    from effeval.store.sqlite import SqliteStore
+
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    alice.post("/api/projects", json={"name": "p"}).raise_for_status()
+    view = alice.post("/api/projects/p/tables", json=speed_table()).json()
+    jobs = speed_jobs(alice, view)
+    main = next(j for j in jobs if j["role"] == "main")
+    reference = next(j for j in jobs if j["role"] == "reference")
+    push_to(
+        alice,
+        "project:p",
+        job_record(main, "m1", {"throughput_tok_s": "30"}),
+        job_record(reference, "r1", {"throughput_tok_s": "20"}),
+    ).raise_for_status()
+    values = {"speedup": "1.5", "speedup.n": "2", "output_match": "1", "flip_rate": "0.1"}
+    SqliteStore(tmp_path).replace_comparisons("rec_m1", "rec_r1", values)
+    cells = spec_cells(alice.get("/api/projects/p/tables").json()[0])
+    assert cells["row0"]["comparisons"] == {"speedup": "1.5", "speedup.n": "2", "output_match": "1"}
+    assert cells["base0"]["comparisons"] == {}
+
+
+def test_repeated_table_cells_average_the_speed_comparisons(server, tmp_path):
+    from effeval.store.sqlite import SqliteStore
+
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    alice.post("/api/projects", json={"name": "p"}).raise_for_status()
+    shared = {"determinism": {"seed": 2}, "repeats": {"count": 2}}
+    view = alice.post("/api/projects/p/tables", json=speed_table(shared)).json()
+    jobs = speed_jobs(alice, view)
+    mains = [j for j in jobs if j["role"] == "main"]
+    assert len(mains) == 2
+    reference = next(j for j in jobs if j["role"] == "reference")
+    push_to(alice, "project:p", job_record(reference, "ref", {"throughput_tok_s": "20"})).raise_for_status()
+    store = SqliteStore(tmp_path)
+    for i, (job, speedup) in enumerate(zip(mains, ("1.0", "2.0"), strict=True)):
+        push_to(alice, "project:p", job_record(job, f"m{i}", {"throughput_tok_s": "30"})).raise_for_status()
+        store.replace_comparisons(f"rec_m{i}", "rec_ref", {"speedup": speedup})
+    cell = spec_cells(alice.get("/api/projects/p/tables").json()[0])["row0"]
+    assert cell["comparisons"]["speedup"] == "1.5"
+    assert cell["comparison_spread"]["speedup"]["n"] == 2
+
+
+def test_frozen_table_keeps_the_speed_comparisons(server, tmp_path):
+    from effeval.store.sqlite import SqliteStore
+
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    alice.post("/api/projects", json={"name": "p"}).raise_for_status()
+    view = alice.post("/api/projects/p/tables", json=speed_table()).json()
+    jobs = speed_jobs(alice, view)
+    main = next(j for j in jobs if j["role"] == "main")
+    reference = next(j for j in jobs if j["role"] == "reference")
+    push_to(
+        alice,
+        "project:p",
+        job_record(main, "m1", {"throughput_tok_s": "30"}),
+        job_record(reference, "r1", {"throughput_tok_s": "20"}),
+    ).raise_for_status()
+    SqliteStore(tmp_path).replace_comparisons("rec_m1", "rec_r1", {"speedup": "1.5"})
+    snap = alice.post(f"/api/projects/p/tables/{view['table_id']}/snapshots").json()
+    assert "speedup" in snap["body"]["metrics"]
+    alice.delete("/api/records/rec_m1").raise_for_status()
+    again = alice.get(f"/api/projects/p/snapshots/{snap['snapshot_id']}").json()
+    assert spec_cells(again["body"])["row0"]["comparisons"]["speedup"] == "1.5"
+
+
+def test_table_rows_take_a_runtime_and_each_provider_gets_its_own_baseline(server):
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    alice.post("/api/projects", json={"name": "p"}).raise_for_status()
+    decoding = {"mode": "speculative", "draft": {"model": "qwen3-0.6b"}, "num_speculative_tokens": 4}
+    rows = [
+        {"label": "hf", "method": {"name": "base"}, "decoding": decoding},
+        {"label": "vllm", "method": {"name": "base"}, "decoding": decoding, "runtime": {"name": "vllm"}},
+    ]
+    view = alice.post("/api/projects/p/tables", json=speed_table(rows=rows))
+    assert view.status_code == 200, view.text
+    block = {r["key"]: r for r in view.json()["blocks"][0]["rows"]}
+    assert (block["row0"]["runtime"], block["row1"]["runtime"]) == ("hf", "vllm")
+    baselines = [r for r in block.values() if r["baseline"]]
+    assert sorted(r["runtime"] for r in baselines) == ["hf", "vllm"]
+    assert len({r["cells"]["speed/spec_bench"]["run_key"] for r in block.values()}) == 4
+
+
+def test_a_provider_has_one_baseline_row_across_speed_and_accuracy_tasks(server):
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    alice.post("/api/projects", json={"name": "p"}).raise_for_status()
+    decoding = {"mode": "speculative", "draft": {"model": "qwen3-0.6b"}, "num_speculative_tokens": 4}
+    tasks = ["speed/spec_bench", "lm_eval/gsm8k"]
+    hf_row = {"label": "hf", "method": {"name": "base"}, "decoding": decoding}
+    vllm_row = {**hf_row, "label": "vllm", "runtime": {"name": "vllm"}}
+
+    def baselines(rows):
+        body = {**speed_table(rows=rows), "tasks": tasks}
+        view = alice.post("/api/projects/p/tables", json=body)
+        assert view.status_code == 200, view.text
+        return [r for r in view.json()["blocks"][0]["rows"] if r["baseline"]]
+
+    (only,) = baselines([hf_row])
+    assert only["runtime"] == "hf" and set(only["cells"]) == set(tasks)
+    both = baselines([hf_row, vllm_row])
+    assert sorted(r["runtime"] for r in both) == ["hf", "vllm"]
+    assert all(r["cells"]["speed/spec_bench"] for r in both)
 
 
 def test_records_carry_the_draft_k_and_provider_outside_the_label(server, speed_comparatives):

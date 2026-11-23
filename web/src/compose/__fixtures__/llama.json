@@ -1,0 +1,453 @@
+{
+ "architecture": "LlamaForCausalLM",
+ "layers": 16,
+ "graph": {
+  "version": 1,
+  "globals": {
+   "embedding": "model.embed_tokens",
+   "final_norm": "model.norm",
+   "lm_head": "lm_head",
+   "norm_kind": "rms"
+  },
+  "nodes": [
+   {
+    "id": "x_in",
+    "kind": "residual",
+    "module": null,
+    "canon": null,
+    "block": null,
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "input_layernorm",
+    "kind": "norm",
+    "module": "input_layernorm",
+    "canon": null,
+    "block": "attn",
+    "gain": true,
+    "axis": "hidden",
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "q",
+    "kind": "linear",
+    "module": "self_attn.q_proj",
+    "canon": "attn.q_proj",
+    "block": "attn",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "k",
+    "kind": "linear",
+    "module": "self_attn.k_proj",
+    "canon": "attn.k_proj",
+    "block": "attn",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "v",
+    "kind": "linear",
+    "module": "self_attn.v_proj",
+    "canon": "attn.v_proj",
+    "block": "attn",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "rope",
+    "kind": "rope",
+    "module": null,
+    "canon": null,
+    "block": "attn",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "qk",
+    "kind": "matmul",
+    "module": null,
+    "canon": null,
+    "block": "attn",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": "attn.scores"
+   },
+   {
+    "id": "softmax",
+    "kind": "softmax",
+    "module": null,
+    "canon": null,
+    "block": "attn",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": "attn.probs"
+   },
+   {
+    "id": "pv",
+    "kind": "matmul",
+    "module": null,
+    "canon": null,
+    "block": "attn",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": "attn.out"
+   },
+   {
+    "id": "o",
+    "kind": "linear",
+    "module": "self_attn.o_proj",
+    "canon": "attn.o_proj",
+    "block": "attn",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "add1",
+    "kind": "add",
+    "module": null,
+    "canon": null,
+    "block": null,
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "post_attention_layernorm",
+    "kind": "norm",
+    "module": "post_attention_layernorm",
+    "canon": null,
+    "block": "mlp",
+    "gain": true,
+    "axis": "hidden",
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "gate",
+    "kind": "linear",
+    "module": "mlp.gate_proj",
+    "canon": "mlp.gate_proj",
+    "block": "mlp",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "act",
+    "kind": "act",
+    "module": "mlp.act_fn",
+    "canon": null,
+    "block": "mlp",
+    "gain": null,
+    "axis": null,
+    "fn": "silu",
+    "out_site": null
+   },
+   {
+    "id": "up",
+    "kind": "linear",
+    "module": "mlp.up_proj",
+    "canon": "mlp.up_proj",
+    "block": "mlp",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "mul",
+    "kind": "mul",
+    "module": null,
+    "canon": null,
+    "block": "mlp",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "down",
+    "kind": "linear",
+    "module": "mlp.down_proj",
+    "canon": "mlp.down_proj",
+    "block": "mlp",
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   },
+   {
+    "id": "add2",
+    "kind": "add",
+    "module": null,
+    "canon": null,
+    "block": null,
+    "gain": null,
+    "axis": null,
+    "fn": null,
+    "out_site": null
+   }
+  ],
+  "edges": [
+   [
+    "x_in",
+    "input_layernorm",
+    null
+   ],
+   [
+    "input_layernorm",
+    "q",
+    "linear.attn.q_proj.input"
+   ],
+   [
+    "input_layernorm",
+    "k",
+    "linear.attn.k_proj.input"
+   ],
+   [
+    "input_layernorm",
+    "v",
+    "linear.attn.v_proj.input"
+   ],
+   [
+    "qk",
+    "softmax",
+    "attn.scores"
+   ],
+   [
+    "softmax",
+    "pv",
+    "attn.probs"
+   ],
+   [
+    "rope",
+    "qk",
+    "attn.q"
+   ],
+   [
+    "rope",
+    "qk",
+    "attn.k"
+   ],
+   [
+    "v",
+    "pv",
+    "attn.v"
+   ],
+   [
+    "pv",
+    "o",
+    "linear.attn.o_proj.input"
+   ],
+   [
+    "x_in",
+    "add1",
+    null
+   ],
+   [
+    "o",
+    "add1",
+    null
+   ],
+   [
+    "add1",
+    "post_attention_layernorm",
+    null
+   ],
+   [
+    "post_attention_layernorm",
+    "gate",
+    "linear.mlp.gate_proj.input"
+   ],
+   [
+    "gate",
+    "act",
+    null
+   ],
+   [
+    "post_attention_layernorm",
+    "up",
+    "linear.mlp.up_proj.input"
+   ],
+   [
+    "act",
+    "mul",
+    null
+   ],
+   [
+    "up",
+    "mul",
+    null
+   ],
+   [
+    "mul",
+    "down",
+    "linear.mlp.down_proj.input"
+   ],
+   [
+    "add1",
+    "add2",
+    null
+   ],
+   [
+    "down",
+    "add2",
+    null
+   ],
+   [
+    "q",
+    "rope",
+    null
+   ],
+   [
+    "k",
+    "rope",
+    null
+   ]
+  ],
+  "unsupported": []
+ },
+ "positions": {
+  "residual": {
+   "rotation": {
+    "offline": "ok",
+    "online": "one matrix is shared by the embedding, every layer and lm_head; nothing runs at inference"
+   },
+   "scaling": {
+    "offline": "the norm over the whole vector is not invariant to per-channel scaling",
+    "online": "the norm over the whole vector is not invariant to per-channel scaling"
+   }
+  },
+  "norm.input_layernorm.out": {
+   "rotation": {
+    "offline": "the producer is a norm with an elementwise gain; rotate the residual instead",
+    "online": "each linear gets its own matrix: use the per-linear inputs"
+   },
+   "scaling": {
+    "offline": "ok",
+    "online": "ok"
+   }
+  },
+  "norm.post_attention_layernorm.out": {
+   "rotation": {
+    "offline": "the producer is a norm with an elementwise gain; rotate the residual instead",
+    "online": "each linear gets its own matrix: use the per-linear inputs"
+   },
+   "scaling": {
+    "offline": "ok",
+    "online": "ok"
+   }
+  },
+  "linear.attn.q_proj.input": {
+   "rotation": {
+    "offline": "same as the norm output: rotate the residual instead",
+    "online": "ok"
+   },
+   "scaling": {
+    "offline": "the input is shared with sibling linears; use norm.input_layernorm.out",
+    "online": "ok"
+   }
+  },
+  "linear.attn.k_proj.input": {
+   "rotation": {
+    "offline": "same as the norm output: rotate the residual instead",
+    "online": "ok"
+   },
+   "scaling": {
+    "offline": "the input is shared with sibling linears; use norm.input_layernorm.out",
+    "online": "ok"
+   }
+  },
+  "linear.attn.v_proj.input": {
+   "rotation": {
+    "offline": "same as the norm output: rotate the residual instead",
+    "online": "ok"
+   },
+   "scaling": {
+    "offline": "the input is shared with sibling linears; use norm.input_layernorm.out",
+    "online": "ok"
+   }
+  },
+  "linear.attn.o_proj.input": {
+   "rotation": {
+    "offline": "an across-head rotation does not commute: each head has its own softmax(QK)V; the per-head part is attn.v_head",
+    "online": "ok"
+   },
+   "scaling": {
+    "offline": "on GQA one value channel feeds several query heads' o_proj columns",
+    "online": "ok"
+   }
+  },
+  "linear.mlp.gate_proj.input": {
+   "rotation": {
+    "offline": "same as the norm output: rotate the residual instead",
+    "online": "ok"
+   },
+   "scaling": {
+    "offline": "the input is shared with sibling linears; use norm.post_attention_layernorm.out",
+    "online": "ok"
+   }
+  },
+  "linear.mlp.up_proj.input": {
+   "rotation": {
+    "offline": "same as the norm output: rotate the residual instead",
+    "online": "ok"
+   },
+   "scaling": {
+    "offline": "the input is shared with sibling linears; use norm.post_attention_layernorm.out",
+    "online": "ok"
+   }
+  },
+  "linear.mlp.down_proj.input": {
+   "rotation": {
+    "offline": "silu(gate) * up is a nonlinear product",
+    "online": "ok"
+   },
+   "scaling": {
+    "offline": "ok",
+    "online": "ok"
+   }
+  },
+  "attn.v_head": {
+   "rotation": {
+    "offline": "ok",
+    "online": "fully foldable offline, nothing needs to run online"
+   },
+   "scaling": {
+    "offline": "not offered",
+    "online": "not offered"
+   }
+  },
+  "attn.qk_rope": {
+   "rotation": {
+    "offline": "RoPE sits between q/k_proj and QK^T",
+    "online": "ok"
+   },
+   "scaling": {
+    "offline": "RoPE pairs channels; not offered now",
+    "online": "RoPE pairs channels; not offered now"
+   }
+  }
+ }
+}

@@ -1,5 +1,7 @@
 // Paper-style table export of Report blocks: best value bold, second best underlined, our methods highlighted.
 import { rowMethodTitle, type Describe, type TableView } from "../api";
+import { providerLabel } from "../compose/Decoding";
+import { comparativeView, hasDecodingColumns } from "../project/decodingColumns";
 import { formatCellValue, formatMetric, metricDef, primaryMetric } from "./metrics";
 import { limitFootnote, rowLimitFootnote, summarizeLimits, type Limit, type LimitSummary } from "./limits";
 import { SAMPLES_FIELD, averageColumns, averageOf, fieldValue, samplesText, type Block, type ConfigField, type ConfigRow } from "./model";
@@ -237,9 +239,13 @@ export function flatRows(table: ExportTable): { header: string[]; rows: { cells:
 }
 
 /** Paper table of an experiment table (live or frozen): one section per model, each task's primary metric. */
-export function exportFromGrid(describe: Describe, grid: TableView): ExportTable {
+export function exportFromGrid(describe: Describe, grid: TableView, metricFor?: (task: string) => string | undefined): ExportTable {
   const frozen = new Map((grid.columns ?? []).map((c) => [c.task, c]));
-  const primary = (task: string) => frozen.get(task)?.metric ?? primaryMetric(describe, task);
+  const ownPrimary = (task: string) => frozen.get(task)?.metric ?? primaryMetric(describe, task);
+  const primary = (task: string) => metricFor?.(task) ?? ownPrimary(task);
+  const read = (cell: TableView["blocks"][number]["rows"][number]["cells"][string] | undefined, name: string) =>
+    cell && cell.metrics?.[name] === undefined && cell.comparisons?.[name] !== undefined ? comparativeView(cell) : cell;
+  const decoding = hasDecodingColumns(describe, grid);
   const categoryOf = (task: string) => frozen.get(task)?.category ?? describe.tasks[task]?.category ?? "";
   const band = (task: string) => {
     const column = frozen.get(task);
@@ -253,7 +259,7 @@ export function exportFromGrid(describe: Describe, grid: TableView): ExportTable
     grid.blocks.flatMap((b) => b.rows.map((r) => r.cells[t]?.limit)).filter((l): l is number | null => l !== undefined).map((l) => (l === -1 ? null : l)))]));
   const columns: ExportColumn[] = [
     ...tasks.map((t) => ({
-      label: t, band: band(t)?.label ?? "", higherIsBetter: metricDef(describe, primary(t) ?? "", t).higher_is_better,
+      label: primary(t) !== ownPrimary(t) ? `${t} ${metricDef(describe, primary(t) ?? "", t).label}` : t, band: band(t)?.label ?? "", higherIsBetter: metricDef(describe, primary(t) ?? "", t).higher_is_better,
       limit: taskLimits.get(t),
     })),
     ...averages.map((a) => ({
@@ -264,7 +270,7 @@ export function exportFromGrid(describe: Describe, grid: TableView): ExportTable
   const sections = grid.blocks.map((block) => {
     const toRow = (row: TableView["blocks"][number]["rows"][number]): ExportRow => {
       const value = (t: string) => {
-        const cell = row.cells[t];
+        const cell = read(row.cells[t], primary(t) ?? "");
         const raw = cell?.status === "done" ? cell.metrics?.[primary(t) ?? ""] : undefined;
         return raw === undefined ? null : Number(raw);
       };
@@ -272,7 +278,7 @@ export function exportFromGrid(describe: Describe, grid: TableView): ExportTable
       const cells = tasks.map((t, i) => {
         if (values[i] === null) return "–";
         const limit = row.cells[t]?.limit;
-        return formatCellValue(describe, primary(t) ?? "", row.cells[t], t) + (columns[i].limit?.mixed && limit != null && limit !== -1 ? "†" : "");
+        return formatCellValue(describe, primary(t) ?? "", read(row.cells[t], primary(t) ?? "")!, t) + (columns[i].limit?.mixed && limit != null && limit !== -1 ? "†" : "");
       });
       averages.forEach((a) => {
         const parts = a.tasks.map(value);
@@ -281,13 +287,19 @@ export function exportFromGrid(describe: Describe, grid: TableView): ExportTable
         cells.push(v === null ? "–" : formatMetric(describe, a.metric, v));
       });
       const ours = !(describe.methods[row.method.name]?.builtin ?? true);
-      return { method: row.label, ours, values, cells, marks: columns.map(() => null), limitKey: "" };
+      const method = decoding
+        ? row.baseline ? `Autoregressive (${providerLabel(describe, row.runtime)})`
+          : `${row.label} (${[row.draft, row.decoding ? `k=${row.decoding.k}` : null, providerLabel(describe, row.runtime)].filter(Boolean).join(", ")})`
+        : row.label;
+      return { method, ours, values, cells, marks: columns.map(() => null), limitKey: "" };
     };
-    const baselineRow = block.rows.find((r) => r.baseline);
+    const baselineRows = decoding ? block.rows.filter((r) => r.baseline) : block.rows.filter((r) => r.baseline).slice(0, 1);
     const rows = block.rows.filter((r) => !r.baseline).map(toRow);
     rank(rows, columns);
     const dtype = String((grid.definition.shared.model as { dtype?: string } | undefined)?.dtype ?? describe.models[block.model]?.dtype ?? "");
-    const baselines = baselineRow ? [{ row: { ...toRow(baselineRow), method: dtype ? precisionLabel(dtype) : baselineRow.label }, group: "–" }] : [];
+    const baselines = baselineRows.map((b) => ({
+      row: decoding ? toRow(b) : { ...toRow(b), method: dtype ? precisionLabel(dtype) : b.label }, group: "–",
+    }));
     return { model: block.model, baselines, groups: rows.length ? [{ label: "", rows }] : [] };
   });
   return withFootnote({ groupHeader: "", columns, sections });

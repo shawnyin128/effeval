@@ -58,6 +58,7 @@ from effeval.core.types import Fidelity, Issue, Record, Sample, Severity, Submit
 from effeval.metrics import derived
 from effeval.metrics.derived import DERIVED, applicable
 from effeval.metrics.quality import COMPARATIVE
+from effeval.metrics.speed import COMPARATIVE as SPEED_COMPARATIVE
 from effeval.plan import freeze, plan_for_jobs, shard
 from effeval.preflight import Estimate, estimate
 from effeval.store.sqlite import SqliteStore
@@ -1059,6 +1060,9 @@ class TableRow(BaseModel):
         default=None,
         description="A RunSpec `decoding` ({mode, draft, num_speculative_tokens}) merged over shared.",
     )
+    runtime: dict[str, Any] | None = Field(
+        default=None, description="A RunSpec `runtime` ({name, ...}) merged over shared."
+    )
 
 
 class ExperimentTable(BaseModel):
@@ -1099,21 +1103,52 @@ def _freeze_row(
         top["preprocess"] = _preprocess_dict(row.preprocess)
     if row.decoding is not None:
         top["decoding"] = row.decoding
+    if row.runtime is not None:
+        top["runtime"] = row.runtime
     raw = _merged(table.shared, top)
     if "preprocess" in raw:
         raw["preprocess"] = _preprocess_dict(raw["preprocess"])
     return freeze(raw, catalog, owner=owner, server=None, lookup=None)
 
 
+def _reference_group(job: Job) -> dict[str, Any]:
+    """A reference job's spec without its task and evaluator: the baseline row it belongs to."""
+    return job.spec.model_copy(update={"task": None, "evaluator": None}).model_dump(mode="json")
+
+
+def _task_independent(group: dict[str, Any]) -> dict[str, Any]:
+    """The reference group without the settings a task brings along (generation, runtime tuning)."""
+    rest = {k: v for k, v in group.items() if k != "generation"}
+    return {**rest, "runtime": {"name": group["runtime"]["name"]}}
+
+
 def _add_references(baselines: dict[str, dict[str, Any]], plan: Plan, catalog: Catalog) -> None:
-    """Put the plan's reference jobs into the baseline rows, one row per reference config."""
+    """Put the plan's reference jobs into the baseline rows, one row per reference config.
+
+    A task brings its own generation settings, and a speed task its own cuda_graphs and static_cache_tokens,
+    so one reference differs in them between tasks; references that differ only there share a row when they
+    are for different tasks.
+    """
     for job in plan.jobs:
         if job.role == "main":
             continue
-        group = job.spec.model_copy(update={"task": None, "evaluator": None}).model_dump_json()
-        base = baselines.setdefault(
-            group,
-            {
+        group = _reference_group(job)
+        exact = json.dumps(group, sort_keys=True)
+        coarse = _task_independent(group)
+        task = job.spec.task.name
+        base = baselines.get(exact)
+        if base is None:
+            base = next(
+                (
+                    b
+                    for key, b in baselines.items()
+                    if all(j.run_key == job.run_key for j in b["jobs"].get(task, []))
+                    and _task_independent(json.loads(key)) == coarse
+                ),
+                None,
+            )
+        if base is None:
+            base = baselines[exact] = {
                 "key": f"base{len(baselines)}",
                 "label": job.spec.method.name,
                 "title": _job_display(catalog, job),
@@ -1124,9 +1159,8 @@ def _add_references(baselines: dict[str, dict[str, Any]], plan: Plan, catalog: C
                 "issues": [],
                 "jobs": {},
                 "invalid": {},
-            },
-        )
-        runs = base["jobs"].setdefault(job.spec.task.name, [])
+            }
+        runs = base["jobs"].setdefault(task, [])
         if job.run_key not in {j.run_key for j in runs}:
             runs.append(job)
 
@@ -1218,6 +1252,7 @@ def _cell(
             visibility=record.visibility.value,
             at=record.created_at,
             limit=record.spec["task"].get("limit"),
+            comparisons=_speed_comparisons(store, record.record_id),
         )
     if job.run_key in activity:
         cell["activity"] = activity[job.run_key]
@@ -1227,20 +1262,28 @@ def _cell(
     return cell
 
 
+def _speed_comparisons(store: SqliteStore, record_id: str) -> dict[str, str]:
+    """A record's stored speed comparatives, including their `.n` and `.<category>` values."""
+    values = store.comparisons(record_id)["values"]
+    return {n: v for n, v in values.items() if n.split(".")[0] in SPEED_COMPARATIVE}
+
+
 _STATUS_PRECEDENCE = ("running", "failed", "pending", "reusable")
 
 
-def _spread(cells: list[dict[str, Any]]) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
-    """Per metric over the cells that have it: exact mean (decimal string) and {"std", "n"} (sample std).
+def _spread(
+    cells: list[dict[str, Any]], key: str = "metrics"
+) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
+    """Per entry of each cell's `key` dict over the cells that have it: exact mean and {"std", "n"}.
 
-    A metric that is not a finite number in every such cell is left out. `std` is None when n is 1.
+    An entry that is not a finite number in every such cell is left out. `std` is None when n is 1.
     """
-    names = list(dict.fromkeys(m for c in cells for m in c.get("metrics", {})))
+    names = list(dict.fromkeys(m for c in cells for m in c.get(key, {})))
     means: dict[str, str] = {}
     spread: dict[str, dict[str, Any]] = {}
     for name in names:
         try:
-            values = [Decimal(c["metrics"][name]) for c in cells if name in c.get("metrics", {})]
+            values = [Decimal(c[key][name]) for c in cells if name in c.get(key, {})]
         except InvalidOperation:
             continue
         if not all(v.is_finite() for v in values):
@@ -1276,6 +1319,8 @@ def _repeated_cell(parts: list[dict[str, Any]]) -> dict[str, Any]:
             record_id=first["record_id"], owner=first["owner"], visibility=first["visibility"], at=first["at"]
         )
         cell["metrics"], cell["spread"] = _spread(with_record)
+        if any(p["comparisons"] for p in with_record):
+            cell["comparisons"], cell["comparison_spread"] = _spread(with_record, "comparisons")
     activity = next((p["activity"] for p in parts if p.get("activity", {}).get("status") == "running"), None)
     activity = activity or next((p["activity"] for p in parts if "activity" in p), None)
     if activity is not None:
@@ -1527,8 +1572,9 @@ def freeze_table(store: SqliteStore, actor: Actor, project: str, table_id: str) 
                 if cell["status"] == "done":
                     comparisons = store.comparisons(cell["record_id"])
                     cell["reference"] = comparisons["reference"]
-                    cell["comparisons"] = {}
+                    cell.setdefault("comparisons", {})
                     used.update(cell["metrics"])
+                    used.update(n.split(".")[0] for n in cell["comparisons"])
     view["columns"] = []
     for task_name in view["tasks"]:
         if task_name in view["missing_tasks"]:
