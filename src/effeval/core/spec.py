@@ -147,7 +147,9 @@ class HardwareSpec(StrictModel):
     gpu: str | None = Field(
         default=None, description="Target GPU name from hwdb; checked on the compute node."
     )
-    count: int = Field(default=1, ge=1)
+    count: int = Field(
+        default=1, ge=1, le=4, description="GPUs one run uses; the model is split across them.",
+    )
 
 
 ReusePolicy = Literal["auto", "same_hardware", "never"]

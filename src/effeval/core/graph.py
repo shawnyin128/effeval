@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SerializerFunctionWrapHandler, model_serializer, model_validator
 
+from effeval.core.fragments import LayerSelector
 from effeval.core.types import StrictModel
 
-NodeKind = Literal["residual", "norm", "linear", "rope", "matmul", "softmax", "add", "act", "mul"]
+NodeKind = Literal["residual", "norm", "linear", "rope", "matmul", "softmax", "add", "act", "mul", "route"]
 OK = "ok"
 
 # Hadamard matrices of size K * 2^m exist for these K: QuaRot's (hadamard_utils.get_hadK) and Paley I.
@@ -32,6 +33,20 @@ class ModelShape(StrictModel):
     head_dim: int
     vocab: int
     tie_word_embeddings: bool
+    num_experts: int | None = Field(default=None, description="MoE only: routed experts per MoE block.")
+    experts_per_token: int | None = Field(default=None, description="MoE only: experts a token is sent to.")
+    moe_intermediate: int | None = Field(default=None, description="MoE only: width of one routed expert.")
+    shared_intermediate: int | None = Field(
+        default=None, description="MoE only: width of the shared expert MLP, if the model has one."
+    )
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_moe_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        for key in ("num_experts", "experts_per_token", "moe_intermediate", "shared_intermediate"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        return data
 
 
 class GraphNode(StrictModel):
@@ -50,6 +65,21 @@ class GraphNode(StrictModel):
     )
     fn: str | None = Field(default=None, description="Activation only: function name.")
     out_site: str | None = Field(default=None, description="Quant site of this node's output, if it has one.")
+    layers: LayerSelector | None = Field(
+        default=None, description="Decoder layers that have this node; None means every layer."
+    )
+    experts: bool | None = Field(
+        default=None,
+        description="True when `module` has a `*` where the routed expert index goes (one per expert).",
+    )
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_moe_fields(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        for key in ("layers", "experts"):
+            if data.get(key) is None:
+                data.pop(key, None)
+        return data
 
 
 class GraphGlobals(StrictModel):
@@ -222,7 +252,7 @@ def _residual(graph: LayerGraph) -> Availability:
     for src, dst, _site in graph.edges:
         if src in stream and dst not in stream and graph.node(dst).kind != "norm":
             reason = f"{dst} reads the residual stream and is not a norm"
-        if dst in stream and src not in stream and graph.node(src).kind != "linear":
+        if dst in stream and src not in stream and graph.node(src).kind not in ("linear", "route"):
             reason = f"{src} writes the residual stream and is not a linear"
     return _cell(
         rot_off=reason,
@@ -273,3 +303,27 @@ def attention_output_position(graph: LayerGraph) -> str | None:
     """The `linear.<canon>.input` position of the linear consuming the attention output, or None."""
     _v, o = _value_and_output(graph)
     return None if o is None else f"linear.{o.canon}.input"
+
+
+def input_width(graph: LayerGraph, shape: ModelShape, lin: GraphNode) -> int:
+    """Width of the channel a linear node reads: `hidden` after a norm, `heads * head_dim` after attention,
+    and after a gating product the width of the MLP that product belongs to (routed expert, shared expert,
+    dense).
+
+    Raises ValueError when the graph needs a MoE dimension `shape` does not have.
+    """
+    [(producer, _site)] = graph.producers(lin.id)
+    if producer.kind == "matmul":
+        return shape.heads * shape.head_dim
+    if producer.kind != "mul":
+        return shape.hidden
+    width = (
+        shape.moe_intermediate
+        if producer.experts
+        else shape.shared_intermediate
+        if producer.id == "shared_mul"
+        else shape.intermediate
+    )
+    if width is None:
+        raise ValueError(f"{producer.id} needs a MoE width the model shape does not have")
+    return width

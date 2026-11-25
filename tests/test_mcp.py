@@ -391,3 +391,54 @@ def test_save_table_takes_a_decoding_per_row_and_exposes_draft_and_k_as_columns(
     rows = {r["key"]: r for r in table["blocks"][0]["rows"]}
     assert rows["row0"]["draft"] == "qwen3-0.6b" and rows["row0"]["decoding"]["k"] == 2
     assert rows["row0"]["label"] == "0.6B draft" and rows["base0"]["draft"] is None
+
+
+def _runner(tmp_path, free_now):
+    spawner = Spawner()
+    runner = LocalRunner(
+        tmp_path / "runs", free_gpus=lambda busy: [g for g in free_now if g not in busy], spawn=spawner
+    )
+    return runner, spawner
+
+
+def test_a_multi_gpu_run_takes_all_its_gpus_at_once_and_holds_them(tmp_path):
+    runner, spawner = _runner(tmp_path, [0, 1, 2, 3])
+    meta = runner.start("plan_a", {"write": "", "run": "true"}, num_gpus=2)
+    assert meta["gpus"] == [0, 1] and meta["gpu"] == 0
+    ((_, kwargs),) = spawner.calls
+    assert kwargs["env"]["CUDA_VISIBLE_DEVICES"] == "0,1"
+    assert runner.busy_gpus() == {0, 1}
+    assert runner.start("plan_b", {"write": "", "run": "true"}, num_gpus=2)["gpus"] == [2, 3]
+    assert runner.busy_gpus() == {0, 1, 2, 3}
+
+
+def test_a_multi_gpu_run_with_too_few_free_gpus_starts_nothing(tmp_path):
+    runner, spawner = _runner(tmp_path, [1])
+    with pytest.raises(RuntimeError, match="2 free GPU"):
+        runner.start("plan_a", {"write": "", "run": "true"}, num_gpus=2)
+    assert spawner.calls == [] and not (tmp_path / "runs" / "plan_a").exists()
+    assert runner.start("plan_a", {"write": "", "run": "true"})["gpus"] == [1]
+
+
+def test_runs_started_by_the_single_gpu_runner_still_show_their_gpu(tmp_path):
+    runner, _ = _runner(tmp_path, [0, 1, 2])
+    old = tmp_path / "runs" / "plan_old"
+    old.mkdir(parents=True)
+    (old / "meta.json").write_text(
+        json.dumps({"plan_id": "plan_old", "gpu": 1, "pid": os.getpid(), "started_at": 1.0})
+    )
+    assert runner.status("plan_old")["gpus"] == [1]
+    assert runner.busy_gpus() == {1}
+    assert runner.start("plan_new", {"write": "", "run": "true"}, num_gpus=2)["gpus"] == [0, 2]
+
+
+def test_run_spec_asks_the_runner_for_hardware_count_gpus(mcp):
+    call, _, spawner, free = mcp
+    free["gpus"] = [0, 1, 2, 3]
+    spec = {**RTN_SPEC, "hardware": {"count": 2}}
+    started = call("run_spec", spec=spec).structured_content
+    assert started["gpus"] == [0, 1]
+    assert spawner.calls[0][1]["env"]["CUDA_VISIBLE_DEVICES"] == "0,1"
+    free["gpus"] = [0, 1, 2]
+    refused = call("run_spec", spec={**RTN_SPEC, "hardware": {"count": 2}, "determinism": {"seed": 5}})
+    assert refused.is_error and "2 free GPU" in refused.content[0].text

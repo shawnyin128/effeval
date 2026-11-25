@@ -9,10 +9,12 @@ from typing import Any
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
+from effeval.core.catalog import builtin_catalog
 from effeval.core.manifest import MethodManifest
 from effeval.core.registry import manifest_from_impl, registered, resolve_entry
 from effeval.core.spec import JobSpec, ResolvedMethod, ResolvedModel, ResolvedPreprocess, RuntimeSpec
 from effeval.core.types import InProcess
+from effeval.runtime import moe
 from effeval.runtime.speculative import (
     GreedyAcceptance,
     ModelDrafter,
@@ -34,6 +36,8 @@ def load_model(model: ResolvedModel, runtime: RuntimeSpec) -> InProcess:
         device_map="auto" if torch.cuda.is_available() else None,
         attn_implementation=runtime.attn_implementation,
     )
+    if builtin_catalog().architectures[model.architecture].moe is not None:
+        moe.unfuse_experts(loaded)
     loaded.eval()
     tokenizer = AutoTokenizer.from_pretrained(model.checkpoint, revision=model.revision)
     return InProcess(model=loaded, tokenizer=tokenizer)

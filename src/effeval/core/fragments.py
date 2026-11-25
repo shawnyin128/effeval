@@ -294,6 +294,7 @@ def linear_weight_rules(rules: list[QuantRule], linear_sites: list[str]) -> dict
 
 
 SITE_TENSORS = ("weight", "input", "output")
+MOE_ROUTER_SITES = tuple(f"moe.router.{t}" for t in SITE_TENSORS)
 SEQUENCE_SITES = ("attn.k", "attn.v")
 """Sites whose tensor is [B, Hkv, T, D], T being the cached sequence: the ones with a token axis."""
 ATTENTION_SITES = ("attn.q", "attn.k", "attn.v", "attn.scores", "attn.probs", "attn.out")

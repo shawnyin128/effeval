@@ -62,26 +62,28 @@ def test_stored_qwen3_layout_matches_extraction_from_hf_metadata():
     assert "attn.q" in stored.site_names() and "linear.attn.q_proj.weight" in stored.site_names()
 
 
-@pytest.mark.compute
-def test_fused_moe_experts_are_reported_as_uncovered():
+def _mixtral_config():
     transformers = pytest.importorskip("transformers")
-    from effeval.ops.introspect import extract_architecture
-
-    config = transformers.Qwen3MoeConfig(
+    return transformers.MixtralConfig(
         vocab_size=97,
         hidden_size=64,
         intermediate_size=96,
-        moe_intermediate_size=32,
         num_hidden_layers=2,
         num_attention_heads=4,
         num_key_value_heads=2,
         head_dim=16,
-        num_experts=4,
+        num_local_experts=4,
         num_experts_per_tok=2,
     )
-    arch = extract_architecture(config, source="test")
-    assert arch.name == "Qwen3MoeForCausalLM"
-    assert {"mlp.experts.gate_up_proj", "mlp.experts.down_proj"} <= set(arch.uncovered_weights)
+
+
+@pytest.mark.compute
+def test_moe_experts_class_without_an_adapter_reports_its_fused_weights_as_uncovered():
+    from effeval.ops.introspect import extract_architecture
+
+    arch = extract_architecture(_mixtral_config(), source="test")
+    assert arch.moe is None
+    assert any(name.startswith("mlp.experts") for name in arch.uncovered_weights)
     assert not any(path.startswith("mlp.experts") for path in arch.linears)
 
 
@@ -137,23 +139,10 @@ def test_llama_graph_has_no_head_norm_and_the_same_positions_as_qwen3():
 
 
 @pytest.mark.compute
-def test_moe_config_yields_an_unsupported_graph():
-    transformers = pytest.importorskip("transformers")
+def test_moe_experts_class_without_an_adapter_yields_an_unsupported_graph():
     from effeval.ops.introspect import extract_architecture
 
-    config = transformers.Qwen3MoeConfig(
-        vocab_size=97,
-        hidden_size=64,
-        intermediate_size=96,
-        moe_intermediate_size=32,
-        num_hidden_layers=2,
-        num_attention_heads=4,
-        num_key_value_heads=2,
-        head_dim=16,
-        num_experts=4,
-        num_experts_per_tok=2,
-    )
-    graph = extract_architecture(config, source="test").graph
+    graph = extract_architecture(_mixtral_config(), source="test").graph
     assert graph.unsupported == ["moe"] and graph.nodes == []
 
 

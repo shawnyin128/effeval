@@ -47,6 +47,12 @@ from effeval.core.types import Artifact, Deviation, Fidelity, HandleKind, Issue,
 from effeval.metrics.derived import DERIVED, applicable
 from effeval.metrics.quality import COMPARATIVE, why_not_applicable
 
+GIB = 1 << 30
+BYTES_PER_PARAM = 2
+WEIGHT_HEADROOM = 1.15
+GPU_USABLE_BYTES = 44 * GIB
+"""Weights in 16 bits plus 15% headroom must fit in 44 GiB per GPU (a 48 GB card)."""
+
 GENERATION_ONLY_KEYS = ("do_sample", "temperature", "max_new_tokens")
 GENERATION_TASK_KEYS = ("max_new_tokens", "do_sample", "temperature")
 
@@ -967,6 +973,15 @@ def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
     architecture = catalog.architectures[entry.architecture]
     res.model_entry, res.architecture = entry, architecture
     res.model = _resolved_model(entry, spec.model.dtype)
+    weight_bytes = entry.params * BYTES_PER_PARAM * WEIGHT_HEADROOM
+    if weight_bytes > spec.hardware.count * GPU_USABLE_BYTES:
+        res.error(
+            "hardware.too_small",
+            f"{entry.code} needs about {weight_bytes / GIB:.0f} GiB of weights and activations, "
+            f"{spec.hardware.count} GPU(s) offer {spec.hardware.count * GPU_USABLE_BYTES / GIB:.0f} GiB",
+            ["hardware.count"],
+            hint="set hardware.count to split the model across more GPUs",
+        )
     if entry.revision is None:
         res.issues.append(
             Issue(

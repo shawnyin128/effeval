@@ -33,7 +33,8 @@ GUIDE = """effeval: evaluation infra for efficiency AI research. Typical flow:
    leaving "tasks" out runs the preset's. A task takes "params" (see get_task's params_schema); "limit"
    evaluates a subset: {"limit": 200} the first 200 samples, {"limit": 0.1} 10% of them, -1 or absent all.
 3. validate_spec until it returns no issue with severity "error".
-4. run_spec starts the run on a free GPU of this machine; poll run_status. Results upload to the lab server.
+4. run_spec starts the run on a free GPU of this machine ("hardware": {"count": N} takes N free GPUs at once,
+   for models too big for one); poll run_status. Results upload to the lab server.
 5. query_records / get_record read results.
 Experiment tables: create_project (once), save_table with {"name", "field", "models", "tasks",
 "rows": [{"label", "method": {...}}], "shared": {...}}, then run_table to run every pending or failed cell;
@@ -223,7 +224,7 @@ def _alive(pid: int) -> bool:
 
 
 class LocalRunner:
-    """Runs rendered commands in the background, one GPU each; run state lives in `root/<plan_id>/`."""
+    """Runs rendered commands in the background, `hardware.count` GPUs each; state in `root/<plan_id>/`."""
 
     def __init__(
         self,
@@ -244,6 +245,7 @@ class LocalRunner:
         if not (run_dir / "meta.json").exists():
             raise ValueError(f"no run {plan_id} on this machine")
         meta = self._meta(plan_id)
+        meta.setdefault("gpus", [meta["gpu"]])
         exit_file = run_dir / "exit_code"
         exit_code = int(exit_file.read_text()) if exit_file.exists() else None
         if exit_code is not None:
@@ -262,24 +264,32 @@ class LocalRunner:
         newest_first = sorted(found, key=lambda r: -r["started_at"])
         return [{k: v for k, v in r.items() if k != "log_tail"} for r in newest_first]
 
-    def start(self, plan_id: str, command: dict[str, str]) -> dict[str, Any]:
-        """Run one rendered command (its `write` and `run` steps) on a free GPU.
+    def busy_gpus(self) -> set[int]:
+        """GPUs held by runs started here that are still running."""
+        return {g for r in self.runs() if r["state"] == "running" for g in r["gpus"]}
 
-        Raises RuntimeError if no GPU is free or the plan already has an unfinished run here."""
+    def start(self, plan_id: str, command: dict[str, str], num_gpus: int = 1) -> dict[str, Any]:
+        """Run one rendered command (its `write` and `run` steps) on `num_gpus` free GPUs.
+
+        Raises RuntimeError if fewer than `num_gpus` GPUs are free (nothing is started) or the plan already
+        has an unfinished run here."""
         run_dir = self.root / plan_id
         if (run_dir / "meta.json").exists() and self.status(plan_id)["state"] in ("running", "finished"):
             raise RuntimeError(f"plan {plan_id} already has a run on this machine")
-        busy = {r["gpu"] for r in self.runs() if r["state"] == "running"}
-        free = self.free_gpus(busy)
-        if not free:
-            raise RuntimeError("no free GPU on this machine right now; try again later")
-        gpu = free[0]
+        free = self.free_gpus(self.busy_gpus())
+        if len(free) < num_gpus:
+            raise RuntimeError(
+                f"{num_gpus} free GPU(s) needed on this machine, {len(free)} free right now; try again later"
+                if num_gpus > 1
+                else "no free GPU on this machine right now; try again later"
+            )
+        gpus = free[:num_gpus]
         run_dir.mkdir(parents=True, exist_ok=True)
         (run_dir / "exit_code").unlink(missing_ok=True)
         (run_dir / "run.sh").write_text(f"set -e\n{command['write']}\n{command['run'].strip()} --yes\n")
         env = {
             **os.environ,
-            "CUDA_VISIBLE_DEVICES": str(gpu),
+            "CUDA_VISIBLE_DEVICES": ",".join(map(str, gpus)),
             "PATH": f"{Path(sys.executable).parent}{os.pathsep}{os.environ.get('PATH', '')}",
         }
         process = self.spawn(
@@ -288,7 +298,13 @@ class LocalRunner:
             env=env,
             start_new_session=True,
         )
-        meta = {"plan_id": plan_id, "gpu": gpu, "pid": process.pid, "started_at": time.time()}
+        meta = {
+            "plan_id": plan_id,
+            "gpu": gpus[0],
+            "gpus": gpus,
+            "pid": process.pid,
+            "started_at": time.time(),
+        }
         (run_dir / "meta.json").write_text(json.dumps(meta))
         return meta
 
@@ -331,7 +347,12 @@ def build_server(client: HttpClient, runner: LocalRunner) -> MCPServer:
         }
         if not rendered["commands"]:
             return {"started": False, **summary, "note": "every job is reused from stored results"}
-        return {"started": True, **summary, **runner.start(plan["plan_id"], rendered["commands"][0])}
+        num_gpus = max(job["spec"]["hardware"]["count"] for job in plan["jobs"])
+        return {
+            "started": True,
+            **summary,
+            **runner.start(plan["plan_id"], rendered["commands"][0], num_gpus),
+        }
 
     @tool
     def describe() -> dict[str, Any]:
@@ -439,8 +460,7 @@ def build_server(client: HttpClient, runner: LocalRunner) -> MCPServer:
     @tool
     def free_gpus() -> list[int]:
         """GPUs on this machine that are free now (no other process, almost no memory in use)."""
-        busy = {r["gpu"] for r in runner.runs() if r["state"] == "running"}
-        return runner.free_gpus(busy)
+        return runner.free_gpus(runner.busy_gpus())
 
     @tool
     def query_records(scope: str = "mine", filters: dict[str, str] | None = None) -> list[dict[str, Any]]:

@@ -7,7 +7,8 @@ attention function can be swapped, and the decoder layer's `nn.Linear` modules a
 
 The layer graph comes from `torch.export` of one decoder layer of a tiny model of the same class built from
 the real config: ATen nodes are collapsed into module nodes through `nn_module_stack`, and the data flow
-between them gives the edges.
+between them gives the edges. In a mixture-of-experts model the MoE block is replaced by an identity stub for
+the export and its nodes are appended declaratively from the `MoELayout`.
 """
 
 from __future__ import annotations
@@ -21,8 +22,9 @@ from huggingface_hub import HfApi
 from torch import nn
 from transformers import AutoConfig, AutoModelForCausalLM, PretrainedConfig, PreTrainedModel
 
-from effeval.core.catalog import ArchitectureDef, ModelEntry, model_code
+from effeval.core.catalog import ArchitectureDef, ModelEntry, MoELayout, model_code
 from effeval.core.graph import GraphGlobals, GraphNode, LayerGraph, ModelShape
+from effeval.core.moe import EXPERT_ADAPTERS
 
 DTYPES = {torch.bfloat16: "bfloat16", torch.float16: "float16", torch.float32: "float32"}
 
@@ -63,6 +65,13 @@ _TINY_DIMS = {
     "vocab_size": 97,
     "num_hidden_layers": 1,
 }
+_TINY_MOE_DIMS = {
+    "moe_intermediate_size": 32,
+    "num_experts": 4,
+    "num_experts_per_tok": 2,
+    "n_routed_experts": 4,
+    "num_local_experts": 4,
+}
 _ACTIVATIONS = {"silu", "gelu", "relu", "tanh", "sigmoid"}
 _SDPA_SITES = ("attn.q", "attn.k", "attn.v")
 
@@ -70,7 +79,7 @@ _SDPA_SITES = ("attn.q", "attn.k", "attn.v")
 def _tiny_config(config: PretrainedConfig) -> PretrainedConfig:
     """Copy of `config` with every dimension shrunk (flags kept) and one layer, using the sdpa backend."""
     tiny = copy.deepcopy(config)
-    for key, value in _TINY_DIMS.items():
+    for key, value in {**_TINY_DIMS, **_TINY_MOE_DIMS}.items():
         if hasattr(tiny, key):
             setattr(tiny, key, value)
     layer_types = getattr(tiny, "layer_types", None)
@@ -124,13 +133,19 @@ def _unique_ids(names: dict[str, str]) -> dict[str, str]:
 
 
 def _layer_graph(
-    config: PretrainedConfig, layers_path: str, attention: str | None, linears: dict[str, str]
+    config: PretrainedConfig,
+    layers_path: str,
+    attention: str | None,
+    linears: dict[str, str],
+    moe: MoELayout | None = None,
 ) -> LayerGraph:
     """Graph of one decoder layer of the architecture `config` instantiates, from `torch.export`."""
     if attention is None:
         raise ValueError("no attention module found in the decoder layer")
     tiny = AutoModelForCausalLM.from_config(_tiny_config(config)).eval()
     layer = tiny.get_submodule(layers_path)[0]
+    if moe is not None:
+        setattr(layer, moe.block, nn.Identity())
     rotary = getattr(tiny.base_model, "rotary_emb", None)
     if rotary is None:
         raise ValueError(f"{type(tiny).__name__}: base model has no rotary_emb")
@@ -257,10 +272,70 @@ def _layer_graph(
                 if src != unit:
                     add_edge("pv" if src == "attn" else src, unit, site)
 
+    if moe is not None:
+        _append_moe(nodes, edges, moe, linears, config.get_text_config().hidden_act)
     _label_blocks(nodes, edges, attention)
     return LayerGraph(
         globals=_graph_globals(tiny, layers_path, norm_kind), nodes=list(nodes.values()), edges=edges
     )
+
+
+def _append_moe(
+    nodes: dict[str, GraphNode],
+    edges: list[tuple[str, str, str | None]],
+    moe: MoELayout,
+    linears: dict[str, str],
+    act: str,
+) -> None:
+    """Replace the stubbed MoE block's edge (norm -> residual add) by router, expert and shared-expert nodes.
+
+    The experts are gated MLPs, `expert_linears` is (gate, up, down); one node stands for all experts.
+    """
+    if act not in _ACTIVATIONS:
+        raise ValueError(f"expert activation {act!r} is not one of {sorted(_ACTIVATIONS)}")
+    add = [n.id for n in nodes.values() if n.kind == "add"][-1]
+    [norm] = [src for src, dst, _ in edges if dst == add and nodes[src].kind == "norm"]
+    edges.remove((norm, add, None))
+    gate, up, down = moe.expert_linears
+
+    def add_node(node: GraphNode) -> None:
+        nodes[node.id] = node
+
+    add_node(GraphNode(id="router", kind="linear", module=moe.router, canon=f"{moe.block}.router"))
+    edges.append((norm, "router", f"linear.{moe.block}.router.input"))
+    add_node(GraphNode(id="route", kind="route", block="mlp"))
+    edges += [("router", "route", None), ("route", add, None)]
+    chains = [("expert", f"{moe.experts}.*", lambda name: f"{moe.experts}.{name}", True)]
+    if moe.shared is not None:
+        chains.append(("shared", moe.shared, lambda name: linears[f"{moe.shared}.{name}"], None))
+    for prefix, base, canon_of, per_expert in chains:
+        ids = {
+            name: f"{prefix}_{role}"
+            for name, role in zip((gate, up, down), ("gate", "up", "down"), strict=True)
+        }
+        for name, node_id in ids.items():
+            add_node(
+                GraphNode(
+                    id=node_id,
+                    kind="linear",
+                    module=f"{base}.{name}",
+                    canon=canon_of(name),
+                    experts=per_expert,
+                )
+            )
+        add_node(
+            GraphNode(id=f"{prefix}_act", kind="act", module=f"{base}.act_fn", fn=act, experts=per_expert)
+        )
+        add_node(GraphNode(id=f"{prefix}_mul", kind="mul", experts=per_expert))
+        for name in (gate, up):
+            edges.append((norm, ids[name], f"linear.{canon_of(name)}.input"))
+        edges += [
+            (ids[gate], f"{prefix}_act", None),
+            (f"{prefix}_act", f"{prefix}_mul", None),
+            (ids[up], f"{prefix}_mul", None),
+            (f"{prefix}_mul", ids[down], f"linear.{canon_of(down)}.input"),
+            (ids[down], "route", None),
+        ]
 
 
 def _label_blocks(
@@ -285,29 +360,84 @@ def _is_moe(layer: nn.Module) -> bool:
     )
 
 
+def _moe_layout(layers: nn.ModuleList) -> MoELayout | None:
+    """The MoE layout of the decoder layers, or None when no layer holds a known fused experts class.
+
+    Raises ValueError when the MoE blocks differ in structure between layers or have no router.
+    """
+    found: dict[int, tuple[str, nn.Module]] = {}
+    for index, layer in enumerate(layers):
+        hits = [(n, m) for n, m in layer.named_modules() if type(m).__name__ in EXPERT_ADAPTERS]
+        if len(hits) > 1:
+            raise ValueError(f"layer {index} has {len(hits)} experts modules")
+        if hits:
+            found[index] = hits[0]
+    if not found:
+        return None
+    first = next(iter(found))
+    path, experts = found[first]
+    if any(p != path or type(m) is not type(experts) for p, m in found.values()):
+        raise ValueError(f"MoE layers differ in the path or class of their experts: {found}")
+    adapter = EXPERT_ADAPTERS[type(experts).__name__]
+    block = path.rsplit(".", 1)[0]
+    block_module = layers[first].get_submodule(block)
+    router = getattr(block_module, adapter.router, None)
+    if not isinstance(getattr(router, "weight", None), nn.Parameter):
+        raise ValueError(f"{block} has no router `{adapter.router}` with a weight")
+    shared = [n for n, _ in block_module.named_children() if n.startswith("shared_expert")]
+    if len(shared) > 1:
+        raise ValueError(f"{block} has several shared expert modules {shared}")
+    return MoELayout(
+        block=block,
+        router=f"{block}.{adapter.router}",
+        experts=path,
+        expert_linears=list(adapter.linears),
+        shared=f"{block}.{shared[0]}" if shared else None,
+        num_experts=experts.num_experts,
+        layers=list(found),
+    )
+
+
 def extract_architecture(config: PretrainedConfig, source: str) -> ArchitectureDef:
     """Layout of the architecture class `config` instantiates. Raises ValueError if undeterminable."""
     model = meta_model(config)
     layers_path = _layers_path(model, config)
-    layer = model.get_submodule(layers_path)[0]
-    attention = _attention_path(model, layer)
+    layers = model.get_submodule(layers_path)
+    attention = _attention_path(model, layers[0])
+    moe = _moe_layout(layers)
     linears: dict[str, str] = {}
-    for path, module in layer.named_modules():
-        if not isinstance(module, nn.Linear):
-            continue
-        if attention is not None and path.startswith(attention + "."):
-            linears[path] = "attn." + path[len(attention) + 1 :]
-        else:
-            linears[path] = path
+    uncovered: list[str] = []
+    for layer in layers if moe is not None else layers[:1]:
+        for path, module in layer.named_modules():
+            if not isinstance(module, nn.Linear) or path in linears:
+                continue
+            if attention is not None and path.startswith(attention + "."):
+                linears[path] = "attn." + path[len(attention) + 1 :]
+            else:
+                linears[path] = path
     if len(set(linears.values())) != len(linears):
         raise ValueError(f"canonical linear names collide: {linears}")
     covered = {f"{path}.weight" for path in linears}
-    uncovered = [name for name, p in layer.named_parameters() if p.dim() >= 2 and name not in covered]
-    graph = (
-        LayerGraph(unsupported=["moe"])
-        if _is_moe(layer)
-        else _layer_graph(config, layers_path, attention, linears)
-    )
+    for layer in layers if moe is not None else layers[:1]:
+        for name, p in layer.named_parameters():
+            if p.dim() >= 2 and name not in covered and name not in uncovered:
+                uncovered.append(name)
+    graph_linears = dict(linears)
+    if moe is not None:
+        if moe.layers != list(range(len(layers))):
+            raise ValueError(f"{type(model).__name__}: MoE models with dense layers are not supported yet")
+        uncovered = [
+            name
+            for name in uncovered
+            if not name.startswith(moe.experts + ".") and name != f"{moe.router}.weight"
+        ]
+        for name in moe.expert_linears:
+            linears[f"{moe.experts}.*.{name}"] = f"{moe.experts}.{name}"
+        graph = _layer_graph(config, layers_path, attention, graph_linears, moe)
+    elif _is_moe(layers[0]):
+        graph = LayerGraph(unsupported=["moe"])
+    else:
+        graph = _layer_graph(config, layers_path, attention, graph_linears)
     return ArchitectureDef(
         name=type(model).__name__,
         layers_path=layers_path,
@@ -316,8 +446,26 @@ def extract_architecture(config: PretrainedConfig, source: str) -> ArchitectureD
         supports_attention_backend=bool(getattr(model, "_supports_attention_backend", False)),
         uncovered_weights=uncovered,
         graph=graph,
+        moe=moe,
         extracted_with={"transformers": transformers.__version__, "source": source},
     )
+
+
+def _moe_shape(text: PretrainedConfig) -> dict[str, int | None]:
+    """The MoE fields of `ModelShape` (all None for a dense config)."""
+
+    def first(*names: str) -> int | None:
+        return next((getattr(text, n) for n in names if getattr(text, n, None) is not None), None)
+
+    width = first("moe_intermediate_size")
+    shared_experts = first("n_shared_experts")
+    return {
+        "num_experts": first("num_experts", "n_routed_experts", "num_local_experts"),
+        "experts_per_token": first("num_experts_per_tok"),
+        "moe_intermediate": width,
+        "shared_intermediate": first("shared_expert_intermediate_size")
+        or (width * shared_experts if width and shared_experts else None),
+    }
 
 
 def model_shape(config: PretrainedConfig) -> ModelShape:
@@ -335,6 +483,7 @@ def model_shape(config: PretrainedConfig) -> ModelShape:
         head_dim=head_dim,
         vocab=text.vocab_size,
         tie_word_embeddings=bool(config.tie_word_embeddings),
+        **_moe_shape(text),
     )
 
 

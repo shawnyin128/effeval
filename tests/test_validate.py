@@ -545,3 +545,52 @@ def test_paroquant_with_an_explicit_preset_and_a_preprocess_validates(preprocess
     method = {"name": "paroquant", "preset": "paper_w4g128"}
     issues = validate(spec(method=method, preprocess=preprocess), CATALOG)
     assert codes(issues) == []
+
+
+def _moe_sized_catalog():
+    from effeval.core.catalog import ModelEntry
+
+    big = ModelEntry(
+        code="qwen3-30b-a3b",
+        checkpoint="Qwen/Qwen3-30B-A3B",
+        revision="a" * 40,
+        architecture="Qwen3ForCausalLM",
+        dtype="bfloat16",
+        params=30_532_122_624,
+        tie_word_embeddings=False,
+    )
+    return CATALOG.with_models([big])
+
+
+def test_a_model_too_big_for_the_gpus_asks_for_hardware_count():
+    catalog = _moe_sized_catalog()
+    one = validate(spec(model="qwen3-30b-a3b"), catalog)
+    assert "hardware.too_small" in codes(one)
+    issue = next(i for i in one if i.code == "hardware.too_small")
+    assert issue.paths == ["hardware.count"] and "hardware.count" in issue.hint
+    two = validate(spec(model="qwen3-30b-a3b", hardware={"count": 2}), catalog)
+    assert "hardware.too_small" not in codes(two)
+    assert "hardware.too_small" not in codes(validate(spec(), CATALOG))
+
+
+def test_hardware_count_is_between_one_and_four():
+    assert codes(validate(spec(hardware={"count": 4}), CATALOG)) == []
+    for count in (0, 5):
+        issues = validate(spec(hardware={"count": count}), CATALOG)
+        assert [(i.code, i.paths) for i in issues] == [("spec.invalid", ["hardware.count"])]
+
+
+def test_hardware_count_does_not_change_a_quality_run_key():
+    from effeval.plan import freeze
+
+    def key(count):
+        plan, _ = freeze(
+            spec(tasks=["native/wikitext2_ppl"], hardware={"count": count}),
+            CATALOG,
+            owner=None,
+            server=None,
+            lookup=None,
+        )
+        return plan.jobs[0].run_key
+
+    assert key(1) == key(2) == key(4)

@@ -15,7 +15,7 @@ from pydantic import Field, model_validator
 
 from effeval.core.catalog import PaperRef, PresetValue
 from effeval.core.fragments import Calibration, LayerSelector
-from effeval.core.graph import LayerGraph, ModelShape, hadamard_size_ok
+from effeval.core.graph import LayerGraph, ModelShape, hadamard_size_ok, input_width
 from effeval.core.types import StrictModel
 
 Kind = Literal["rotation", "scaling"]
@@ -296,7 +296,8 @@ def position_dim(graph: LayerGraph, shape: ModelShape, position: str) -> int:
     """Width of the channel a position rotates or scales.
 
     `residual` and `norm.*.out` are `hidden`; `attn.v_head`, `attn.qk_pre_rope` and `attn.qk_rope` are
-    `head_dim`; a linear's input is `hidden` after a norm, `intermediate` after the gating product, and
+    `head_dim`; a linear's input is `hidden` after a norm, the MLP width
+    (`intermediate`, `moe_intermediate` or `shared_intermediate`) after the gating product, and
     `heads * head_dim` after attention. Raises ValueError for an unknown position.
     """
     if position == "residual" or (position.startswith("norm.") and position.endswith(".out")):
@@ -307,10 +308,7 @@ def position_dim(graph: LayerGraph, shape: ModelShape, position: str) -> int:
         canon = position[len("linear.") : -len(".input")]
         for node in graph.of_kind("linear"):
             if node.canon == canon:
-                [(producer, _site)] = graph.producers(node.id)
-                return {"mul": shape.intermediate, "matmul": shape.heads * shape.head_dim}.get(
-                    producer.kind, shape.hidden
-                )
+                return input_width(graph, shape, node)
     raise ValueError(f"unknown position {position!r}")
 
 

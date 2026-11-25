@@ -15,9 +15,16 @@ from pathlib import PurePosixPath
 from typing import Any, Literal
 
 import yaml
-from pydantic import Field, computed_field, field_validator, model_validator
+from pydantic import (
+    Field,
+    SerializerFunctionWrapHandler,
+    computed_field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
-from effeval.core.fragments import ATTENTION_SITES, SITE_TENSORS
+from effeval.core.fragments import ATTENTION_SITES, MOE_ROUTER_SITES, SITE_TENSORS
 from effeval.core.graph import LayerGraph, ModelShape, merge_overrides
 from effeval.core.listing import EvaluatorInfo, ListedMetric, ListedTask, TaskListing
 from effeval.core.manifest import MethodManifest
@@ -37,6 +44,20 @@ def model_code(checkpoint: str) -> str:
     if not _MODEL_CODE.match(code):
         raise ValueError(f"cannot derive a model code from {checkpoint!r}: got {code!r}")
     return code
+
+
+class MoELayout(StrictModel):
+    """Where the mixture-of-experts parts sit in a decoder layer; all paths are relative to the layer."""
+
+    block: str = Field(description="The MoE block, e.g. `mlp`.")
+    router: str = Field(description="The router module (not an nn.Linear), e.g. `mlp.gate`.")
+    experts: str = Field(description="The routed experts container, e.g. `mlp.experts`.")
+    expert_linears: list[str] = Field(
+        description="Linear names inside one unfused expert: gate, up and down projection, in that order."
+    )
+    shared: str | None = Field(description="The shared-expert MLP, or None.")
+    num_experts: int
+    layers: list[int] = Field(description="Decoder layers that have a MoE block; the others are dense.")
 
 
 class ArchitectureDef(StrictModel):
@@ -59,6 +80,16 @@ class ArchitectureDef(StrictModel):
         exclude=True,
         description="Hand fixes merged into `graph` by `effective_graph` (see `merge_overrides`).",
     )
+    moe: MoELayout | None = Field(
+        default=None, description="Mixture-of-experts layout; None for dense architectures."
+    )
+
+    @model_serializer(mode="wrap")
+    def _omit_dense_moe(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("moe") is None:
+            data.pop("moe", None)
+        return data
 
     def effective_graph(self) -> LayerGraph | None:
         """`graph` with `graph_overrides` applied; None when no graph was extracted."""
@@ -69,6 +100,8 @@ class ArchitectureDef(StrictModel):
     def site_names(self) -> list[str]:
         names = [f"linear.{canon}.{t}" for canon in self.linears.values() for t in SITE_TENSORS]
         names += [f"lm_head.{t}" for t in SITE_TENSORS]
+        if self.moe is not None:
+            names += list(MOE_ROUTER_SITES)
         if self.attention_path is not None and self.supports_attention_backend:
             names += list(ATTENTION_SITES)
         return sorted(names)
