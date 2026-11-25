@@ -7,15 +7,16 @@ from __future__ import annotations
 
 import contextlib
 import random
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Literal
 
 import torch
 from datasets import load_dataset
 from torch import nn
-from transformers import AutoTokenizer
+from torch.utils.data import DataLoader
+from transformers import AutoTokenizer, BatchEncoding
 
-from effeval.core.fragments import Calibration, IntFormat, QuantRule, select_layers
+from effeval.core.fragments import Calibration, IntFormat, QuantRule, TextBatches, select_layers
 from effeval.ops import online, sites
 
 PILE_VAL = "mit-han-lab/pile-val-backup"
@@ -68,6 +69,99 @@ def calibration_windows(calibration: Calibration, tokenizer_id: str) -> list[tor
     else:
         raise ValueError(f"unsupported calibration dataset {calibration.dataset!r}")
     return windows
+
+
+def text_batches(cfg: TextBatches, tokenizer) -> list[list[BatchEncoding]]:
+    """Tokenized batches per epoch: result[epoch][step], on CPU.
+
+    Rows are the `text` column of the first n_samples rows of the split. Each epoch is one pass of a
+    `DataLoader(shuffle=True)` whose generator is seeded once with `shuffle_seed`, so epochs differ and the
+    sequence of batches equals the official CodeQuant loaders. A row becomes one user turn of the chat
+    template when `chat_template` is set; each batch is tokenized with truncation to `max_length`, `padding`.
+    """
+    rows = load_dataset(cfg.dataset, split=cfg.split)
+    texts = rows.select(range(min(cfg.n_samples, len(rows))))["text"]
+    generator = torch.Generator()
+    generator.manual_seed(cfg.shuffle_seed)
+    loader = DataLoader(texts, batch_size=cfg.batch_size, shuffle=True, generator=generator, collate_fn=list)
+    template_options = {} if cfg.enable_thinking is None else {"enable_thinking": cfg.enable_thinking}
+    epochs: list[list[BatchEncoding]] = []
+    for _ in range(cfg.epochs):
+        batches = []
+        for batch in loader:
+            if cfg.chat_template:
+                batch = [
+                    tokenizer.apply_chat_template(
+                        [{"role": "user", "content": text}],
+                        tokenize=False,
+                        add_generation_prompt=True,
+                        **template_options,
+                    )
+                    for text in batch
+                ]
+            batches.append(
+                tokenizer(
+                    batch,
+                    return_tensors="pt",
+                    padding=True if cfg.padding == "longest" else "max_length",
+                    truncation=True,
+                    max_length=cfg.max_length,
+                )
+            )
+        epochs.append(batches)
+    return epochs
+
+
+def reasoning_mixture(
+    problems: list[str],
+    wiki_texts: list[str],
+    generate: Callable[[list[str]], list[str]],
+    tokenizer,
+    total: int,
+    wiki_ratio: float,
+    seed: int = 42,
+) -> list[str]:
+    """CodeQuant2's reasoning-aware calibration texts: model-written traces mixed with plain text, shuffled.
+
+    `int(total * wiki_ratio)` rows are drawn from the non-empty `wiki_texts` (raw text) and the rest from
+    `problems`, drawn with `random.Random(seed)` as the official `MixedDataset` does. Only the drawn problems
+    are generated: `generate` receives their chat-templated prompts (user turn, generation prompt, thinking
+    enabled) and returns one completion each. A trace becomes a chat with the problem as user turn and the
+    completion as assistant turn. Raises ValueError when fewer than `total` rows are available.
+    """
+    wiki_texts = [text for text in wiki_texts if text.strip()]
+    rng = random.Random(seed)
+    wiki_count = min(int(total * wiki_ratio), len(wiki_texts))
+    generated_count = min(total - wiki_count, len(problems))
+    if wiki_count + generated_count < total:
+        raise ValueError(
+            f"requested {total} rows but only {generated_count} problems and {wiki_count} wiki rows exist"
+        )
+    chosen_problems = [problems[i] for i in rng.sample(range(len(problems)), generated_count)]
+    chosen_wiki = [wiki_texts[i] for i in rng.sample(range(len(wiki_texts)), wiki_count)]
+    prompts = [
+        tokenizer.apply_chat_template(
+            [{"role": "user", "content": problem}],
+            tokenize=False,
+            add_generation_prompt=True,
+            enable_thinking=True,
+        )
+        for problem in chosen_problems
+    ]
+    completions = generate(prompts) if prompts else []
+    if len(completions) != len(prompts):
+        raise ValueError(f"generate returned {len(completions)} completions for {len(prompts)} prompts")
+    rows = [
+        tokenizer.apply_chat_template(
+            [{"role": "user", "content": problem}, {"role": "assistant", "content": completion}],
+            tokenize=False,
+            add_generation_prompt=False,
+            enable_thinking=True,
+        )
+        for problem, completion in zip(chosen_problems, completions, strict=True)
+    ] + chosen_wiki
+    rng.shuffle(rows)
+    return rows
 
 
 def _concat_blocks(dataset, tokenizer, n_samples: int, block_size: int) -> list[torch.Tensor]:

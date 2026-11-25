@@ -6,13 +6,16 @@ from typing import Literal
 
 import torch
 
-from effeval.core.fragments import FpFormat, IntFormat, MxFormat, sequence_options
+from effeval.core.fragments import CodebookFormat, FpFormat, IntFormat, MxFormat, sequence_options
+from effeval.ops import codebook
 from effeval.ops.quant.formats import fp_scaled, int_grid, mx_e4m3, mx_e8m0
 
 TensorKind = Literal["weight", "activation"]
 
 
-def fake_quantize(x: torch.Tensor, fmt: IntFormat | FpFormat | MxFormat, kind: TensorKind) -> torch.Tensor:
+def fake_quantize(
+    x: torch.Tensor, fmt: IntFormat | FpFormat | MxFormat | CodebookFormat, kind: TensorKind
+) -> torch.Tensor:
     """Quantize-dequantize `x` in float32 and return it in x's dtype and shape.
 
     Granularity is the reduction of one scale unit. For weights [out, in], `per_channel` is one scale per
@@ -23,7 +26,13 @@ def fake_quantize(x: torch.Tensor, fmt: IntFormat | FpFormat | MxFormat, kind: T
     Formats with `group_axis` or `residual` act on activations [..., T, D] with T the token axis: the most
     recent `residual` tokens stay untouched, and `group_axis: token` makes a group the group_size consecutive
     tokens of one feature (the quantized span is cut to whole groups, the remaining tokens stay untouched).
+
+    A `CodebookFormat` fits k-means codebooks on a weight in the dtype it configures (see `ops.codebook`).
     """
+    if isinstance(fmt, CodebookFormat):
+        if kind != "weight":
+            raise ValueError("codebook applies to weights, not activations")
+        return codebook.fake_quantize(x, fmt)
     if not sequence_options(fmt):
         return _quantize_units(x, fmt, kind)
     if kind != "activation":

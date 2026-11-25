@@ -179,7 +179,40 @@ class MxFormat(StrictModel):
         return value
 
 
-QuantFormat = Annotated[IntFormat | FpFormat | MxFormat, Field(discriminator="type")]
+class KMeansConfig(StrictModel):
+    """Lloyd iterations of a codebook fit, started from k-means++ draws of a generator seeded with `seed`."""
+
+    iters: int = Field(default=300, ge=0, description="Maximum Lloyd iterations.")
+    tol: float = Field(
+        default=1e-6, ge=0.0, description="Stop once no centroid moves by more than this (absolute)."
+    )
+    seed: int = Field(default=42, description="Seed of the k-means++ generator, created afresh per matrix.")
+    compute_dtype: Literal["weight", "float32"] = Field(
+        default="weight", description="Dtype the fit runs in: the weight's own dtype or float32."
+    )
+
+
+class CodebookFormat(StrictModel):
+    """Weights only: each unit (a row, or group_size consecutive values of a row) keeps `centroids` values
+    fitted by k-means, and every element is replaced by the nearest centroid of its unit."""
+
+    type: Literal["codebook"]
+    centroids: int = Field(ge=1, le=256, description="Codebook entries per unit.")
+    granularity: Literal["per_channel", "per_group"] = Field(
+        description="Unit: per_channel one codebook per output row, per_group one per group_size values."
+    )
+    group_size: int | None = Field(
+        default=None, ge=1, description="Values per codebook when granularity is per_group."
+    )
+    kmeans: KMeansConfig = Field(default_factory=KMeansConfig)
+
+    @model_validator(mode="after")
+    def _group_size_matches_granularity(self) -> CodebookFormat:
+        _check_group_size(self.granularity, self.group_size)
+        return self
+
+
+QuantFormat = Annotated[IntFormat | FpFormat | MxFormat | CodebookFormat, Field(discriminator="type")]
 
 LayerSelector = int | str | list[int | str]
 
@@ -274,6 +307,13 @@ class QuantRule(StrictModel):
         return value
 
     @model_validator(mode="after")
+    def _codebook_on_weights(self) -> QuantRule:
+        wrong = [site for site in self.sites if not site.endswith(".weight")]
+        if isinstance(self.quant, CodebookFormat) and wrong:
+            raise ValueError(f"codebook applies to .weight sites only, not {wrong}")
+        return self
+
+    @model_validator(mode="after")
     def _sequence_options_on_sequence_sites(self) -> QuantRule:
         options = sequence_options(self.quant)
         wrong = [site for site in self.sites if site not in SEQUENCE_SITES]
@@ -331,6 +371,41 @@ class Calibration(StrictModel):
             raise ValueError(
                 "pile_val uses sampling documents, concat_blocks or random_crop; c4 and wikitext2 use windows"
             )
+        return self
+
+
+class TextBatches(StrictModel):
+    """Calibration texts of a Hugging Face dataset, tokenized as shuffled batches of whole rows.
+
+    The first n_samples rows of `split` are shuffled each epoch by a `torch.utils.data.DataLoader` whose
+    generator is seeded with `shuffle_seed` (the order of the official CodeQuant loaders), cut into batches
+    of batch_size rows (the last may be smaller), optionally wrapped in the chat template as one user turn,
+    and tokenized with truncation to max_length tokens.
+    """
+
+    dataset: str = Field(description="Hugging Face dataset id with a `text` column.")
+    split: str = Field(default="train", description="Dataset split.")
+    n_samples: int = Field(ge=1, description="Leading rows used.")
+    batch_size: int = Field(ge=1, description="Rows per batch.")
+    max_length: int = Field(ge=1, description="Tokens kept per row.")
+    epochs: int = Field(ge=1, description="Passes over the rows, each with a fresh shuffle.")
+    shuffle_seed: int = Field(
+        default=42, description="Seed of the shuffling generator, shared by all epochs."
+    )
+    chat_template: bool = Field(
+        default=True, description="Wrap each row as a user turn and add the generation prompt."
+    )
+    enable_thinking: bool | None = Field(
+        default=None, description="Passed to the chat template when set (Qwen3); omitted when null."
+    )
+    padding: Literal["longest", "max_length"] = Field(
+        default="longest", description="Pad each batch to its longest row or to max_length."
+    )
+
+    @model_validator(mode="after")
+    def _thinking_needs_template(self) -> TextBatches:
+        if self.enable_thinking is not None and not self.chat_template:
+            raise ValueError("enable_thinking applies to the chat template")
         return self
 
 
