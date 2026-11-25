@@ -423,6 +423,13 @@ config_schema:
       minimum: 1
       title: Blocksize
       type: integer
+    true_sequential:
+      default: false
+      description: Quantize each layer's linears in groups (k/v/q, o, up/gate, down),
+        re-running the layer between groups so later groups see the quantized earlier
+        ones, as the official `--true-sequential`.
+      title: True Sequential
+      type: boolean
     calibration:
       $ref: '#/$defs/Calibration'
   required:
@@ -439,6 +446,6 @@ display:
 - act_order
 default_preset: paper
 custom_presets: {}
-schema_hash: sha256:65d4275adace2ef8e7ef54b08e24ef94b5a5a1d37bb7b08084a72fc70f08f655
+schema_hash: sha256:49566a775eaea511bd374a14e2c816343d65de4855d288ee474a5aba2175b2e3
 builtin: true
 description: GPTQ weight quantization (ported from the official implementation).

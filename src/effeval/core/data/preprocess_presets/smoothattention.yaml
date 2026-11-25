@@ -6,6 +6,8 @@ paper: {title: "QServe: W4A8KV4 Quantization and System Co-design for Efficient 
 # into q_norm/k_norm gains, which are replaced by per-head gains; the key statistic is taken after RoPE at the K cache (attn.k)
 # and tied over each RoPE pair; the other QServe parts (W4A8 progressive group quantization,
 # per-head rotation of v_proj/o_proj, activation-aware channel reordering) are not part of this preset.
+quantizers:
+  rtn: [qserve_kv4]
 values:
   preprocess.steps:
     value:

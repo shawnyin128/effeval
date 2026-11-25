@@ -1,0 +1,178 @@
+name: paroquant
+title: ParoQuant
+version: '1'
+field: quantization
+runtime: hf
+entry: effeval.methods.quantization.paroquant:paroquant
+capabilities:
+  modes: []
+  handles:
+  - in_process
+uses: []
+architectures: null
+config_schema:
+  $defs:
+    ParoQuantCalibration:
+      additionalProperties: false
+      properties:
+        datasets:
+          description: Training corpora, sampled evenly and shuffled together.
+          items:
+            enum:
+            - wikitext2
+            - c4
+            - redpajama
+            - pileval
+            type: string
+          minItems: 1
+          title: Datasets
+          type: array
+        train_size:
+          description: Training sequences in total.
+          minimum: 1
+          title: Train Size
+          type: integer
+        val_dataset:
+          description: Corpus of the validation sequences.
+          enum:
+          - wikitext2
+          - c4
+          - redpajama
+          - pileval
+          title: Val Dataset
+          type: string
+        validation_size:
+          description: Validation sequences.
+          minimum: 1
+          title: Validation Size
+          type: integer
+        seqlen:
+          description: Tokens per sequence.
+          minimum: 8
+          title: Seqlen
+          type: integer
+        seed:
+          description: Seed of the data shuffles; layer i draws its rotation pairs
+            with seed + i.
+          title: Seed
+          type: integer
+      required:
+      - datasets
+      - train_size
+      - val_dataset
+      - validation_size
+      - seqlen
+      - seed
+      title: ParoQuantCalibration
+      type: object
+    ParoQuantStage:
+      additionalProperties: false
+      properties:
+        params:
+          additionalProperties:
+            type: number
+          description: 'Trainable parameter groups of this stage and their learning
+            rates: any of weight, angles, channel_scales, quantizer.'
+          minProperties: 1
+          title: Params
+          type: object
+        epochs:
+          description: Passes over the training set in this stage.
+          minimum: 1
+          title: Epochs
+          type: integer
+      required:
+      - params
+      - epochs
+      title: ParoQuantStage
+      type: object
+  additionalProperties: false
+  properties:
+    n_bits:
+      description: Weight bit width.
+      maximum: 8
+      minimum: 1
+      title: N Bits
+      type: integer
+    group_size:
+      description: Quantization and rotation group size (input channels).
+      minimum: 2
+      title: Group Size
+      type: integer
+    num_rotations:
+      description: Rotation steps per linear.
+      minimum: 1
+      title: Num Rotations
+      type: integer
+    num_pairs_factor:
+      description: Rotated pairs per group and step, as a fraction of group_size.
+      exclusiveMinimum: 0.0
+      maximum: 0.5
+      title: Num Pairs Factor
+      type: number
+    stages:
+      description: Optimisation stages, run in order.
+      items:
+        $ref: '#/$defs/ParoQuantStage'
+      minItems: 1
+      title: Stages
+      type: array
+    weight_decay:
+      minimum: 0.0
+      title: Weight Decay
+      type: number
+    betas:
+      maxItems: 2
+      minItems: 2
+      prefixItems:
+      - type: number
+      - type: number
+      title: Betas
+      type: array
+    eps:
+      exclusiveMinimum: 0.0
+      title: Eps
+      type: number
+    loss:
+      enum:
+      - mse
+      - smooth_l1
+      title: Loss
+      type: string
+    calibration:
+      $ref: '#/$defs/ParoQuantCalibration'
+    batch_size:
+      description: Sequences per optimisation step.
+      minimum: 1
+      title: Batch Size
+      type: integer
+    cache_shards:
+      description: Shards of the cached training activations moved to the GPU.
+      minimum: 1
+      title: Cache Shards
+      type: integer
+  required:
+  - n_bits
+  - group_size
+  - num_rotations
+  - num_pairs_factor
+  - stages
+  - weight_decay
+  - betas
+  - eps
+  - loss
+  - calibration
+  - batch_size
+  - cache_shards
+  title: ParoQuantConfig
+  type: object
+display:
+- n_bits
+- group_size
+- num_rotations
+default_preset: paper_w4g128
+custom_presets: {}
+schema_hash: sha256:594f79536d0a97ca69843f2a99aefae4f7e4a1d7c730fcb04543215b79ce74e4
+builtin: true
+description: 'ParoQuant: learned grouped Givens rotations and channel scales before
+  group-wise weight quantization (ported from the official legacy branch).'

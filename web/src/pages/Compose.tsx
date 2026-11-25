@@ -441,7 +441,11 @@ export function Compose() {
     case "preprocess":
       body = (
         <Card title={stepTitle} hint={t("Optional: rotation and / or scaling before quantization")}>
-          <Preprocess value={spec.preprocess} modelCode={spec.model?.name ?? ""} problems={problems}
+          <Preprocess value={spec.preprocess} modelCode={spec.model?.name ?? ""} problems={problems} method={spec.method}
+            onPickQuantizer={(name, preset) => {
+              setSpec((s) => ({ ...s, method: { name, preset } }));
+              toast(t("Quantizer set to {method} · {preset}", { method: methodTitle(describe, name), preset }), { tone: "success", description: t("The preset defines the config; earlier method config values were cleared.") });
+            }}
             onChange={(next) => setSpec((s) => { const { preprocess: _drop, ...rest } = s; return next ? { ...rest, preprocess: next } : rest; })} />
         </Card>
       );
@@ -530,7 +534,7 @@ export function Compose() {
                 <dl className="kv">
                   <dt>{t("Method")}</dt><dd className="mono">{spec.method?.name ? methodTitle(describe, spec.method.name) : "—"}</dd>
                   <dt>{t("Preset")}</dt><dd>{presetName ?? t("None")}</dd>
-                  {spec.preprocess && spec.method?.name && <><dt>{t("Run label")}</dt><dd className="mono">{preprocessLabel(spec.preprocess, describe, spec.method.name, t)}</dd></>}
+                  {spec.preprocess && spec.method?.name && <><dt>{t("Run label")}</dt><dd className="mono">{preprocessLabel(spec.preprocess, describe, spec.method.name, t, spec.method.preset)}</dd></>}
                   {preset && <><dt>{t("Paper")}</dt><dd className="small"><a href={`https://arxiv.org/abs/${preset.paper.arxiv}`} target="_blank" rel="noreferrer">{preset.paper.title}</a></dd></>}
                 </dl>
               </ReviewGroup>
@@ -732,7 +736,7 @@ export function CommandDialog({ rendered, onClose }: { rendered: Rendered | null
                       <tr key={job.job_id}>
                         <td><Badge tone={job.role === "main" ? "accent" : undefined}>{t(job.role)}</Badge></td>
                         <td className="small mono">{job.spec.model.name}</td>
-                        <td className="small mono">{preprocessLabel(job.spec.preprocess, describe, job.spec.method.name, t)}</td>
+                        <td className="small mono">{preprocessLabel(job.spec.preprocess, describe, job.spec.method.name, t, job.spec.method.preset)}</td>
                         {speculative && <td className="small mono">{job.spec.decoding
                           ? `${t("draft")} ${job.spec.decoding.draft.model.name} · k=${job.spec.decoding.num_speculative_tokens} · ${providerLabel(describe, job.spec.runtime?.name)}`
                           : `${t("Autoregressive")} · ${providerLabel(describe, job.spec.runtime?.name)}`}</td>}

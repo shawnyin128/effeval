@@ -53,9 +53,10 @@ entries; an entry has a position (an id from get_architecture(model): residual, 
 linear.<proj>.input, attn.v_head, attn.qk_pre_rope, attn.qk_rope), a mode (offline = folded into the weights;
 online = a runtime op) and a source ({"type": ..., options}, see preprocess_sources). get_architecture also
 says which kind x mode is valid at each position and why not.
-The quantizer stays the method. Example "QuaRot + GPTQ W4A4KV4": save_table rows
+The quantizer stays the method; a preprocess preset lists its paired method presets (describe: "quantizers")
+and needs one of them set explicitly. Example "QuaRot + GPTQ W4A4KV4": save_table rows
 [{"label": "QuaRot + GPTQ W4A4KV4", "preprocess": "quarot",
-"method": {"name": "gptq", "config": {<W4A4KV4 rules>}}}].
+"method": {"name": "gptq", "preset": "quarot_w4a4kv4"}}].
 Speculative decoding: use field "speculative_decoding". A RunSpec takes "decoding": {"mode": "speculative",
 "draft": {"model": <model code>}, "num_speculative_tokens": k} (the target is the top-level "model"; the draft
 and k, 1 to 16, are required, and the draft must share the target's vocabulary) and "runtime": {"name": "hf" |

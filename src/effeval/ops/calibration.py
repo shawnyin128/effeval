@@ -293,3 +293,79 @@ def attention_operand_absmax(
         model.config.use_cache = use_cache
         attachment.remove()
     return maxima
+
+
+def paroquant_blocks(
+    tokenizer_id: str, dataset: str, n_samples: int, seqlen: int, seed: int, split: str
+) -> list[torch.Tensor]:
+    """ParoQuant calibration blocks (paroquant/util.py `get_calib_dataset`): n_samples tensors [seqlen].
+
+    The corpus (`pileval`, `wikitext2`, `c4` or `redpajama`) is shuffled with `seed`; stripped documents
+    longer than seqlen tokens or empty are skipped, the rest concatenated until n_samples * seqlen tokens and
+    cut into seqlen blocks (fewer blocks when the corpus is exhausted). `split` is ignored for `pileval`. c4
+    reads the first training file (`train`) or validation file 1 (`validation`); redpajama is split 70/10/20
+    into train/validation/test after shuffling.
+    """
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
+    if dataset == "pileval":
+        corpus = load_dataset(PILE_VAL, split="validation").shuffle(seed=seed)
+    elif dataset == "wikitext2":
+        corpus = load_dataset("Salesforce/wikitext", "wikitext-2-raw-v1", split=split).shuffle(seed=seed)
+    elif dataset == "c4":
+        files = {
+            "train": "en/c4-train.00000-of-01024.json.gz",
+            "validation": "en/c4-validation.00001-of-00008.json.gz",
+        }
+        if split not in files:
+            raise ValueError(f"c4 has the splits train and validation, got {split!r}")
+        corpus = load_dataset("allenai/c4", data_files={split: files[split]}, split=split).shuffle(seed=seed)
+    elif dataset == "redpajama":
+        corpus = load_dataset(
+            "liang2kl/RedPajama-Data-1T-Sample-Backup", split="train", trust_remote_code=True
+        ).shuffle(seed=seed)
+        test_size = int(len(corpus) * 0.2)
+        val_size = int(len(corpus) * 0.1)
+        train_size = len(corpus) - test_size - val_size
+        if split == "test":
+            corpus = corpus.select(range(len(corpus) - test_size, len(corpus)))
+        elif split == "validation":
+            corpus = corpus.select(range(len(corpus) - test_size - val_size, len(corpus) - test_size))
+        elif split == "train":
+            corpus = corpus.select(range(0, train_size))
+        else:
+            raise ValueError(f"invalid split {split!r}")
+    else:
+        raise ValueError(f"unsupported calibration dataset {dataset!r}")
+
+    samples: list[torch.Tensor] = []
+    total_len = 0
+    for row in corpus:
+        encoded = tokenizer.encode(row["text"].strip())
+        if len(encoded) > seqlen or len(encoded) == 0:
+            continue
+        samples.append(torch.tensor([encoded]))
+        total_len += len(encoded)
+        if total_len >= n_samples * seqlen:
+            break
+    joined = torch.cat(samples, dim=1).squeeze(0)  # [total tokens]
+    n_split = min(joined.shape[0] // seqlen, n_samples)
+    return [joined[i * seqlen : (i + 1) * seqlen] for i in range(n_split)]
+
+
+def paroquant_mixture(
+    tokenizer_id: str, datasets: list[str], n_samples: int, seqlen: int, seed: int, split: str
+) -> list[torch.Tensor]:
+    """ParoQuant training mixture (paroquant/util.py `get_mixed_calib_dataset`): n_samples tensors [seqlen].
+
+    Each dataset contributes n_samples // len(datasets) blocks (the last one the remainder); the result is
+    shuffled with `random.Random(seed)`. Raises ValueError if a dataset yields fewer blocks than requested.
+    """
+    per_dataset = n_samples // len(datasets)
+    results: list[torch.Tensor] = []
+    for position, dataset in enumerate(datasets):
+        count = per_dataset if position < len(datasets) - 1 else n_samples - len(results)
+        results.extend(paroquant_blocks(tokenizer_id, dataset, count, seqlen, seed, split))
+    if len(results) != n_samples:
+        raise ValueError(f"expected {n_samples} samples, got {len(results)}")
+    random.Random(seed).shuffle(results)
+    return results

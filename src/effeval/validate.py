@@ -202,22 +202,79 @@ def _fill_values(raw: dict[str, Any], values: dict[str, PresetValue], fidelity: 
     return merged
 
 
-def _apply_preprocess_preset(raw: dict[str, Any], res: Resolution) -> dict[str, Any]:
-    """Fill the named preprocess preset's values into unset `preprocess.*` paths; unknown names are errors."""
-    section = raw.get("preprocess")
-    name = section.get("preset") if isinstance(section, dict) else None
-    if name is None:
-        return raw
-    preset = builtin_preprocess_presets().get(name)
-    if preset is None:
-        res.error(
-            "preprocess.preset_unknown",
-            f"no preprocess preset {name!r}",
-            ["preprocess.preset"],
-            hint=f"available presets: {sorted(builtin_preprocess_presets())}",
+def _check_paired_preset(
+    raw: dict[str, Any],
+    preset: PreprocessPresetDef | None,
+    manifest: MethodManifest | None,
+    catalog: Catalog,
+    res: Resolution,
+) -> None:
+    """With a preprocess set, a quantizer method that has presets needs an explicit method preset.
+
+    The implicit (default) method preset is an error, listing the preprocess preset's paired method presets
+    when it declares any and the method's own presets otherwise; an explicit preset outside the paired list
+    is a warning; `preset: null` (a full user config) is not checked.
+    """
+    method = raw.get("method") or {}
+    paired = [] if preset is None else preset.quantizers.get(method.get("name"), [])
+    requested = method.get("preset", DEFAULT_PRESET)
+    if requested is None:
+        return
+    if requested == DEFAULT_PRESET:
+        if paired:
+            res.error(
+                "preset.needs_choice",
+                f"preprocess {preset.name!r} pairs with {method['name']} presets {paired}; set method.preset",
+                ["method.preset"],
+                hint=f"set method.preset to one of {paired}",
+            )
+            return
+        if manifest is not None and manifest.field == "quantization":
+            available = sorted(catalog.presets.get(manifest.name, {})) + sorted(manifest.custom_presets)
+            if available:
+                res.error(
+                    "preset.needs_choice",
+                    f"a preprocess is set; choose the {manifest.name} preset to run it with (method.preset)",
+                    ["method.preset"],
+                    hint=f"set method.preset to one of {available}, or null with an explicit config",
+                )
+        return
+    if paired and requested not in paired:
+        res.issues.append(
+            Issue(
+                code="preset.unpaired",
+                severity=Severity.WARNING,
+                paths=["method.preset"],
+                message=f"preprocess {preset.name!r} is meant to run with {method['name']} presets {paired}, "
+                f"not {requested!r}",
+            )
         )
+
+
+def _apply_preprocess_preset(
+    raw: dict[str, Any], res: Resolution, manifest: MethodManifest | None, catalog: Catalog
+) -> dict[str, Any]:
+    """Check the method preset against a non-empty `preprocess` and fill the named preprocess preset's values
+    into unset `preprocess.*` paths; unknown names are errors."""
+    section = raw.get("preprocess")
+    if not isinstance(section, dict) or not (section.get("preset") or section.get("steps")):
         return raw
-    res.preprocess_preset = preset
+    name = section.get("preset")
+    preset = None
+    if name is not None:
+        preset = builtin_preprocess_presets().get(name)
+        if preset is None:
+            res.error(
+                "preprocess.preset_unknown",
+                f"no preprocess preset {name!r}",
+                ["preprocess.preset"],
+                hint=f"available presets: {sorted(builtin_preprocess_presets())}",
+            )
+            return raw
+        res.preprocess_preset = preset
+    _check_paired_preset(raw, preset, manifest, catalog, res)
+    if preset is None:
+        return raw
     fidelity = Fidelity()
     merged = _fill_values(raw, preset.values, fidelity)
     res.fidelity.confirmed += fidelity.confirmed
@@ -860,7 +917,7 @@ def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
             return res
         if res.preset is not None:
             merged, res.fidelity = apply_preset(raw, res.preset)
-    merged = _apply_preprocess_preset(merged, res)
+    merged = _apply_preprocess_preset(merged, res, manifest, catalog)
     if not res.ok:
         return res
 

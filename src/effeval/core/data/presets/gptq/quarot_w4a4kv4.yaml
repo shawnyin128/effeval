@@ -21,6 +21,9 @@ values:
   method.config.static_groups:
     value: false
     source: "code: fake_quant/gptq_utils.py#L232-L233 (static_groups=False)"
+  method.config.true_sequential:
+    value: true
+    source: "code: fake_quant/gptq_utils.py#L189-L194 (sequential k/v/q, o, up/gate, down)"
   method.config.percdamp:
     value: 0.01
     source: "code: fake_quant/gptq_utils.py#L40-L41"

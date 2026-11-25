@@ -1,3 +1,4 @@
+import hashlib
 import math
 
 import pytest
@@ -41,11 +42,52 @@ def test_hadamard_factor_follows_quarot_search_order_and_rejects_unsupported_siz
     assert rotation.hadamard_factor(2560) == (40, 64)
     assert rotation.hadamard_factor(3072) == (12, 256)
     assert rotation.hadamard_factor(256) == (1, 256)
-    for n in (9728, 17408, 44, 3):
+    for n in (5632, 44, 3):
         with pytest.raises(ValueError, match="no Hadamard matrix"):
             rotation.hadamard(n)
         with pytest.raises(AssertionError):
             quarot.get_hadK(n)
+    for n in (9728, 17408, 25600):
+        with pytest.raises(AssertionError):
+            quarot.get_hadK(n)
+    assert rotation.hadamard_factor(9728) == (152, 64)
+    assert rotation.hadamard_factor(17408) == (68, 256)
+    assert rotation.hadamard_factor(25600) == (200, 128)
+
+
+@pytest.mark.parametrize("k", rotation.PALEY_BASES)
+def test_paley_base_is_a_hadamard_matrix_of_the_identity_plus_skew_form(k):
+    base = rotation._base_matrix(k)
+    assert set(base.unique().tolist()) == {-1.0, 1.0}
+    assert torch.equal(base @ base.T, k * _identity(k))
+    # Type I construction: H = I + S with S skew-symmetric, so H + H^T = 2I.
+    assert torch.equal(base + base.T, 2 * _identity(k))
+
+
+@pytest.mark.parametrize("n", [9728, 17408, 25600])
+def test_paley_based_hadamard_is_orthonormal_with_entries_plus_minus_one_over_sqrt_n(n):
+    h = rotation.hadamard(n)
+    assert (h @ h.T - _identity(n)).abs().max() < 1e-12
+    assert torch.allclose(h.abs(), torch.full_like(h, 1 / math.sqrt(n)), rtol=0, atol=1e-15)
+
+
+OLD_HADAMARD_SHA256 = {
+    1024: "7f9cfc4613ffe7e0c3ff56ab2e91bf19bebbd3182c85cc548d173de5a92245fe",
+    2048: "4a0e6c7ab3d33ce4952edfc35eb36404e4dd864beae9c2b012c3a3173de244e3",
+    2560: "c8aedffe1fe40f87e31d6a1e4492bb8248c63c26748d68499cbb09fc59f0f36a",
+    3072: "8d320323c74a62ca0c579b59c930e12e9cd459e276b7f4d89e571208ed8e143c",
+    4096: "7fcfd90d530cd406d141bbecb0e34c2ec00ce83cea3a52a6ff15319a778b2577",
+    5120: "80884c2477111efbe939b32b27fafe6ed61d9752376f3d824369b614775012be",
+    6144: "05aa10bf749dee97f9b41286c1a92078fa0c03c08532cbd0b45dedcdde823d75",
+    11008: "5cd49da78f5b4108d52937c59f239f05e2ae3bc2b76edbff83975d9916f11f57",
+    12288: "616b96c5b58df749eed144dba7c5fafbb8a0d1fc87a2eaff4584d4d316f69fda",
+}
+
+
+@pytest.mark.parametrize("n", sorted(OLD_HADAMARD_SHA256))
+def test_previously_supported_hadamard_sizes_are_bit_identical_to_the_pre_paley_matrices(n):
+    digest = hashlib.sha256(rotation.hadamard(n).contiguous().numpy().tobytes()).hexdigest()
+    assert digest == OLD_HADAMARD_SHA256[n]
 
 
 @pytest.mark.parametrize(("n", "seed"), [(64, 0), (96, 1), (3072, 0), (1024, 7)])

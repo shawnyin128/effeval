@@ -98,12 +98,12 @@ export function isModified(value: PreprocessSpec | undefined, describe: Describe
   return !!preset && !!value?.steps && !sameSteps(value.steps, preset.steps, describe.preprocess_sources);
 }
 
-/** Run label "<preprocess title>[*] + <method title>" (the server builds the same for stored records). */
+/** Run label "<preprocess title>[*] + <method title>[ (<method preset>)]" (the server builds the same for stored records). */
 export function preprocessLabel(
   value: { preset?: string | null; steps?: PreprocessStep[] } | null | undefined, describe: Describe, method: string,
-  t: Translate,
+  t: Translate, methodPreset?: string | null,
 ): string {
-  const title = methodTitle(describe, method);
+  const title = methodTitle(describe, method) + (value && methodPreset && methodPreset !== "default" ? ` (${methodPreset})` : "");
   if (!value) return title;
   const preset = value.preset ? describe.preprocess_presets?.[value.preset] : undefined;
   if (!preset) return `${t("Custom preprocessing")} + ${title}`;
@@ -562,11 +562,14 @@ const normalize = (path: string) => path.replace(/\[(\d+)\]/g, ".$1");
 const FADE_MS = 220;
 const FLASH_MS = 1100;
 
-export function Preprocess({ value, onChange, modelCode, problems }: {
+export function Preprocess({ value, onChange, modelCode, problems, method, onPickQuantizer }: {
   value: PreprocessSpec | undefined;
   onChange: (next: PreprocessSpec | undefined) => void;
   modelCode: string;
   problems: Problems;
+  /** The spec's current method name and preset; with `onPickQuantizer` it enables the paired-quantizer buttons. */
+  method?: { name?: string; preset?: string | null };
+  onPickQuantizer?: (method: string, preset: string) => void;
 }) {
   const { describe } = useApp();
   const t = useT();
@@ -699,6 +702,19 @@ export function Preprocess({ value, onChange, modelCode, problems }: {
                 {p.title}{value?.preset === p.name && modified ? "*" : ""}
               </button>
             ))}
+          </div>
+        </Field>
+      )}
+
+      {onPickQuantizer && preset && Object.keys(preset.quantizers).length > 0 && (
+        <Field label={t("Pair with a quantizer")}>
+          <div className="row gap-2 pre-presets" role="group" aria-label={t("Pair with a quantizer")}>
+            {Object.entries(preset.quantizers).flatMap(([name, names]) => names.map((p) => (
+              <button key={`${name}:${p}`} type="button" className={`pre-preset ${method?.name === name && method?.preset === p ? "on" : ""}`}
+                aria-pressed={method?.name === name && method?.preset === p} onClick={() => onPickQuantizer(name, p)}>
+                {methodTitle(describe, name)} · {p}
+              </button>
+            )))}
           </div>
         </Field>
       )}

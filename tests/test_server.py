@@ -1439,7 +1439,7 @@ def test_table_cells_report_the_sample_limit_stored_in_their_record(server):
 def quarot_spec(**preprocess):
     return {
         "model": "qwen3-0.6b-base",
-        "method": {"name": "gptq"},
+        "method": {"name": "gptq", "preset": "quarot_w4a4kv4"},
         "field": "quantization",
         "tasks": ["native/wikitext2_ppl"],
         "preprocess": {"preset": "quarot", **preprocess},
@@ -1480,6 +1480,7 @@ def test_describe_lists_architecture_graph_position_tables_and_preprocess_preset
     )
     assert first["source"] == {"type": "random_hadamard", "seed": 0, "fallback": None}
     assert quarot["versions"]["rotation.random_hadamard"] == "1"
+    assert quarot["quantizers"]["gptq"] == ["quarot_w4a16", "quarot_w4a4kv4"]
 
     sources = described["preprocess_sources"]
     assert sources["rotation"]["trained"]["implemented"] is False
@@ -1498,9 +1499,9 @@ def test_runs_and_records_carry_the_preprocess_label(server):
     plain = alice.post("/api/render", json={"spec": {**quarot_spec(), "preprocess": None}}).json()["plan"]
     labelled = alice.post("/api/render", json={"spec": quarot_spec()}).json()["plan"]
     preview = alice.post("/api/reuse-preview", json={"spec": quarot_spec()}).json()
-    assert {j["label"] for j in preview["jobs"] if j["role"] == "main"} == {"QuaRot + GPTQ"}
+    assert {j["label"] for j in preview["jobs"] if j["role"] == "main"} == {"QuaRot + GPTQ (quarot_w4a4kv4)"}
     summaries = {r["plan_id"]: r["summary"] for r in alice.get("/api/runs").json()}
-    assert summaries[labelled["plan_id"]].split(" · ")[1] == "QuaRot + GPTQ"
+    assert summaries[labelled["plan_id"]].split(" · ")[1] == "QuaRot + GPTQ (quarot_w4a4kv4)"
     assert summaries[plain["plan_id"]].split(" · ")[1] == "gptq"
 
     main = next(j for j in labelled["jobs"] if j["role"] == "main")
@@ -1523,10 +1524,11 @@ def test_runs_and_records_carry_the_preprocess_label(server):
         job_record(plain_main, "q4", {"ppl": "9.8"}),
     ).raise_for_status()
     rows = {r["record_id"]: r for r in alice.get("/api/records?scope=mine").json()}
-    assert rows["rec_q1"]["label"] == "QuaRot + GPTQ" and rows["rec_q1"]["display"]["preprocess"] == "QuaRot"
+    assert rows["rec_q1"]["label"] == "QuaRot + GPTQ (quarot_w4a4kv4)"
+    assert rows["rec_q1"]["display"]["preprocess"] == "QuaRot"
     assert rows["rec_q1"]["preprocess"]["preset"] == "quarot"
-    assert rows["rec_q2"]["label"] == "Custom preprocessing + GPTQ"
-    assert rows["rec_q3"]["label"] == "QuaRot* + GPTQ"
+    assert rows["rec_q2"]["label"] == "Custom preprocessing + GPTQ (quarot_w4a4kv4)"
+    assert rows["rec_q3"]["label"] == "QuaRot* + GPTQ (quarot_w4a4kv4)"
     assert rows["rec_q3"]["display"]["preprocess"] == "QuaRot*"
     assert rows["rec_q4"]["label"] == "GPTQ" and rows["rec_q4"]["preprocess"] is None
     assert "preprocess" not in rows["rec_q4"]["display"]
@@ -1544,20 +1546,27 @@ def test_table_rows_take_a_preprocess_and_are_labelled_with_it(server):
             **TABLE,
             "tasks": ["native/wikitext2_ppl"],
             "rows": [
-                {"method": {"name": "gptq"}, "preprocess": "quarot"},
-                {"label": "mine", "method": {"name": "gptq"}, "preprocess": {"steps": custom["steps"]}},
+                {"method": {"name": "gptq", "preset": "quarot_w4a4kv4"}, "preprocess": "quarot"},
+                {
+                    "label": "mine",
+                    "method": {"name": "gptq", "preset": "paper"},
+                    "preprocess": {"steps": custom["steps"]},
+                },
                 {"label": "RTN", "method": {"name": "rtn", "preset": "gptq_paper"}},
             ],
         },
     )
     assert view.status_code == 200
     rows = {r["key"]: r for r in view.json()["blocks"][0]["rows"]}
-    assert (rows["row0"]["label"], rows["row0"]["title"]) == ("QuaRot + GPTQ", "QuaRot + GPTQ")
+    assert (rows["row0"]["label"], rows["row0"]["title"]) == 2 * ("QuaRot + GPTQ (quarot_w4a4kv4)",)
     assert rows["row0"]["preprocess"] == "quarot"
-    assert (rows["row1"]["label"], rows["row1"]["title"]) == ("mine", "Custom preprocessing + GPTQ")
+    assert (rows["row1"]["label"], rows["row1"]["title"]) == ("mine", "Custom preprocessing + GPTQ (paper)")
     assert (rows["row2"]["label"], rows["row2"]["title"], rows["row2"]["preprocess"]) == ("RTN", "RTN", None)
     assert rows["base0"]["title"] == "Base" and rows["base0"]["preprocess"] is None
     assert rows["row0"]["cells"]["native/wikitext2_ppl"]["status"] == "pending"
+    implicit = {**quarot_spec(), "method": {"name": "gptq"}}
+    issues = alice.post("/api/validate", json={"spec": implicit}).json()["issues"]
+    assert "preset.needs_choice" in {i["code"] for i in issues if i["severity"] == "error"}
 
 
 SPECULATIVE_SPEC = {

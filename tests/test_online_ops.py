@@ -4,7 +4,7 @@ torch = pytest.importorskip("torch")
 pytest.importorskip("transformers")
 
 from conftest import build_tiny_llama, build_tiny_qwen3  # noqa: E402
-from effeval.ops import online, sites  # noqa: E402
+from effeval.ops import online, rotation, sites  # noqa: E402
 from effeval.ops.scaling import ChannelDivide, HeadChannelScale  # noqa: E402
 from test_sites import padded_batch  # noqa: E402
 
@@ -98,3 +98,23 @@ def test_head_channel_scale_rejects_mismatched_shapes():
         HeadChannelScale(torch.ones(4))(x)
     with pytest.raises(ValueError, match="must be"):
         HeadChannelScale(torch.ones(1, 3, 8))
+
+
+def test_kron_right_multiply_equals_the_dense_hadamard_product_and_the_signed_one():
+    n = 9728
+    x = torch.randn(3, 5, n)
+    base, m = rotation.hadamard_parts(n)
+    dense = x.double() @ rotation.hadamard(n)
+    got = online.KronRightMultiply(base, m)(x)
+    assert got.dtype == x.dtype
+    assert (got - dense.float()).abs().max() < 1e-4 * x.abs().max()
+    signed = online.KronRightMultiply(base, m, rotation.random_signs(n, 3))(x)
+    dense_signed = x.double() @ rotation.random_hadamard(n, 3)
+    assert (signed - dense_signed.float()).abs().max() < 1e-4 * x.abs().max()
+    assert (signed - got).abs().max() > 0.1
+
+
+def test_kron_right_multiply_returns_the_input_dtype_for_half_inputs():
+    base, m = rotation.hadamard_parts(9728)
+    x = torch.randn(2, 9728).to(torch.bfloat16)
+    assert online.KronRightMultiply(base, m)(x).dtype == torch.bfloat16

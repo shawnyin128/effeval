@@ -643,7 +643,7 @@ def all_positions_ok(monkeypatch):
 
 
 def _preprocessed(preprocess, extra=None):
-    raw = {**GPTQ, "preprocess": preprocess, **(extra or {})}
+    raw = {**GPTQ, "method": {"name": "gptq", "preset": "paper"}, "preprocess": preprocess, **(extra or {})}
     plan, issues = freeze(raw, CATALOG, owner=None, server=None, lookup=None)
     assert plan is not None, issues
     return plan

@@ -469,3 +469,79 @@ def test_the_smoothattention_preset_resolves_with_the_qserve_kv4_quantizer():
         "tasks": [{"name": "native/wikitext2_ppl"}],
     }
     assert codes(validate(raw, CATALOG)) == []
+
+
+def quarot_spec(method):
+    return spec(method=method, preprocess={"preset": "quarot"})
+
+
+@pytest.mark.parametrize("name", ["gptq", "rtn"])
+def test_a_paired_preprocess_with_the_implicit_method_preset_is_an_error_listing_the_pairs(name):
+    issues = validate(quarot_spec({"name": name}), CATALOG)
+    (issue,) = [i for i in issues if i.code == "preset.needs_choice"]
+    assert issue.severity.value == "error" and issue.paths == ["method.preset"]
+    assert "quarot_w4a16" in issue.message and "quarot_w4a4kv4" in issue.message
+
+
+def test_an_explicit_paired_method_preset_passes():
+    for preset in ("quarot_w4a16", "quarot_w4a4kv4"):
+        issues = validate(quarot_spec({"name": "gptq", "preset": preset}), CATALOG)
+        assert [i.code for i in issues if i.severity.value != "info"] == []
+
+
+def test_an_unpaired_method_preset_is_only_a_warning():
+    issues = validate(quarot_spec({"name": "gptq", "preset": "paper"}), CATALOG)
+    assert codes(issues) == [] and codes(issues, "warning") == ["preset.unpaired"]
+
+
+def test_a_null_method_preset_with_a_full_config_has_no_preset_issue():
+    issues = validate(quarot_spec({"name": "rtn", "preset": None, "config": {"rules": RTN_RULES}}), CATALOG)
+    assert not [i for i in issues if i.code.startswith("preset.")]
+
+
+def test_the_implicit_method_preset_without_preprocess_is_unchanged():
+    assert "preset.needs_choice" not in codes(validate(spec(method={"name": "gptq"}), CATALOG))
+
+
+STEPS_PREPROCESS = {
+    "steps": [
+        {
+            "kind": "rotation",
+            "entries": [
+                {"position": "residual", "mode": "offline", "source": {"type": "hadamard"}},
+            ],
+        }
+    ]
+}
+
+
+def test_a_named_preprocess_without_a_pairing_for_the_method_still_needs_a_method_preset():
+    issues = validate(spec(method={"name": "paroquant"}, preprocess={"preset": "quarot"}), CATALOG)
+    (issue,) = [i for i in issues if i.code == "preset.needs_choice"]
+    assert issue.severity.value == "error" and issue.paths == ["method.preset"]
+    assert "paper_w4g128" in issue.hint
+
+
+@pytest.mark.parametrize("name", ["gptq", "rtn", "paroquant"])
+def test_a_steps_preprocess_with_the_implicit_method_preset_is_an_error_listing_the_presets(name):
+    issues = validate(spec(method={"name": name}, preprocess=STEPS_PREPROCESS), CATALOG)
+    (issue,) = [i for i in issues if i.code == "preset.needs_choice"]
+    assert issue.severity.value == "error" and issue.paths == ["method.preset"]
+    assert issue.hint and "set method.preset to one of [" in issue.hint
+
+
+def test_a_steps_preprocess_with_an_explicit_or_null_method_preset_has_no_preset_issue():
+    explicit = validate(
+        spec(method={"name": "paroquant", "preset": "paper_w4g128"}, preprocess=STEPS_PREPROCESS), CATALOG
+    )
+    null = validate(spec(preprocess=STEPS_PREPROCESS), CATALOG)
+    assert not [i for i in explicit + null if i.code.startswith("preset.")]
+
+
+@pytest.mark.parametrize(
+    "preprocess", [{"preset": "quarot"}, {"preset": "smoothquant_quarot"}, STEPS_PREPROCESS]
+)
+def test_paroquant_with_an_explicit_preset_and_a_preprocess_validates(preprocess):
+    method = {"name": "paroquant", "preset": "paper_w4g128"}
+    issues = validate(spec(method=method, preprocess=preprocess), CATALOG)
+    assert codes(issues) == []

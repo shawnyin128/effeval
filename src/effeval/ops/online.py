@@ -8,6 +8,7 @@ before `sites.attach`, and remove the returned attachments in reverse order.
 from __future__ import annotations
 
 import fnmatch
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -15,7 +16,7 @@ import torch
 from torch import nn
 
 from effeval.core.fragments import select_layers
-from effeval.ops import sites
+from effeval.ops import rotation, sites
 
 
 @dataclass(frozen=True)
@@ -41,6 +42,36 @@ class RightMultiply(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return (x.to(self.compute_dtype) @ self.matrix.to(x.device)).to(x.dtype)
+
+
+class KronRightMultiply(nn.Module):
+    """Online op x @ diag(s) @ (H_K^T (x) H_m) / sqrt(K * m) on x [..., K * m], without the dense matrix.
+
+    `base` is the unnormalised [K, K] matrix H_K, H_m the Sylvester Hadamard matrix of size `m` (a power of
+    two), and `signs` an optional [K * m] +-1 vector s. Computed in `compute_dtype` and returned in x's dtype.
+    """
+
+    def __init__(
+        self,
+        base: torch.Tensor,
+        m: int,
+        signs: torch.Tensor | None = None,
+        compute_dtype: torch.dtype = torch.float32,
+    ):
+        super().__init__()
+        self.compute_dtype = compute_dtype
+        self.register_buffer("base", base.detach().clone().to(compute_dtype) / math.sqrt(base.shape[0]))
+        self.register_buffer("sylvester", rotation.hadamard(m).to(compute_dtype))
+        self.register_buffer("signs", None if signs is None else signs.detach().clone().to(compute_dtype))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        shape = x.shape
+        y = x.to(self.compute_dtype)
+        if self.signs is not None:
+            y = y * self.signs.to(x.device)
+        y = y.reshape(*shape[:-1], self.base.shape[0], self.sylvester.shape[0])
+        y = torch.einsum("...ac,ba,cd->...bd", y, self.base.to(x.device), self.sylvester.to(x.device))
+        return y.reshape(shape).to(x.dtype)
 
 
 class HeadMix(nn.Module):
@@ -100,6 +131,16 @@ def _pre_hook(fn: Callable[[torch.Tensor], torch.Tensor]):
 
     hook._effeval_graph_safe = True
     return hook
+
+
+def share_pre_hooks(source: nn.Module, target: nn.Module) -> None:
+    """Make `target` run the forward-pre-hooks of `source`, e.g. a stand-in for a linear carrying online ops.
+
+    The hook registries are shared, not copied: handles returned by `register` keep working, and hooks added
+    or removed on either module apply to both.
+    """
+    for name in ("_forward_pre_hooks", "_forward_pre_hooks_with_kwargs"):
+        setattr(target, name, getattr(source, name))
 
 
 def register(model: nn.Module, ops: list[OnlineOp]) -> sites.Attachment:

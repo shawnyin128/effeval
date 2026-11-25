@@ -17,8 +17,8 @@ from effeval.core.types import StrictModel
 NodeKind = Literal["residual", "norm", "linear", "rope", "matmul", "softmax", "add", "act", "mul"]
 OK = "ok"
 
-# QuaRot builds a Hadamard matrix of size K * 2^m for these base sizes K (hadamard_utils.get_hadK).
-_HADAMARD_BASES = (1, 12, 20, 28, 36, 40, 52, 60, 108, 140, 156, 172)
+# Hadamard matrices of size K * 2^m exist for these K: QuaRot's (hadamard_utils.get_hadK) and Paley I.
+_HADAMARD_BASES = (1, 12, 20, 28, 36, 40, 52, 60, 68, 108, 140, 152, 156, 172, 200)
 
 
 class ModelShape(StrictModel):
@@ -121,7 +121,7 @@ def merge_overrides(graph: LayerGraph, overrides: dict[str, Any]) -> LayerGraph:
 
 
 def hadamard_size_ok(n: int) -> bool:
-    """Whether a Hadamard matrix of size `n` exists in QuaRot's construction (n = K * 2^m, K a known base)."""
+    """Whether a Hadamard matrix of size `n` exists here (n = K * 2^m, K a known base)."""
     if n < 1:
         return False
     return any(n % k == 0 and (n // k) & (n // k - 1) == 0 for k in _HADAMARD_BASES)

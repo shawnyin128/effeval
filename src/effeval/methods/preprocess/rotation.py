@@ -33,8 +33,10 @@ from effeval.methods.preprocess.engine import (
     source,
 )
 from effeval.ops import rotation as rot
-from effeval.ops.online import HeadMix, HeadwiseRightMultiply, OnlineOp, RightMultiply
+from effeval.ops.online import HeadMix, HeadwiseRightMultiply, KronRightMultiply, OnlineOp, RightMultiply
 from effeval.ops.scaling import scale_input_columns
+
+KRON_MIN_WIDTH = 8192
 
 
 def rotation_matrix(src: Any, n: int, position: str) -> torch.Tensor:
@@ -54,6 +56,18 @@ def rotation_matrix(src: Any, n: int, position: str) -> torch.Tensor:
     if src.type == "random_orthogonal":
         return rot.random_orthogonal(n, src.seed)
     raise EngineError(f"{src.type!r} is not a matrix source")
+
+
+def _linear_input_op(src: Any, n: int, position: str, matrix: torch.Tensor) -> torch.nn.Module:
+    """Online op x @ `matrix`; the Kronecker form for a Hadamard of width >= `KRON_MIN_WIDTH` whose factor K
+    is a Paley base, so every width supported before the Paley bases keeps the dense op."""
+    plain = src.type == "hadamard" or (src.type == "random_hadamard" and plain_hadamard_ok(position, n))
+    if plain and n >= KRON_MIN_WIDTH:
+        base, m = rot.hadamard_parts(n)
+        if base.shape[0] in rot.PALEY_BASES:
+            signs = rot.random_signs(n, src.seed) if src.type == "random_hadamard" else None
+            return KronRightMultiply(base, m, signs)
+    return RightMultiply(matrix)
 
 
 def per_kv_head_matrices(src: Any, net: Net, position: str) -> torch.Tensor:
@@ -268,7 +282,8 @@ def _rotate_linear_input(net: Net, entry: RotationEntry, graph: LayerGraph, resu
     for layer in layers:
         linear = net.module(layer, node)
         _set(linear.weight, rot.fold_input(linear.weight, matrix))
-    result.online.append(OnlineOp(entry.position, RightMultiply(matrix), entry.layers))
+    op = _linear_input_op(entry.source, n, entry.position, matrix)
+    result.online.append(OnlineOp(entry.position, op, entry.layers))
     result.edits.append(
         f"{entry.position}: {entry.source.type} {n}x{n} online, weight half folded in {len(layers)} layers"
     )

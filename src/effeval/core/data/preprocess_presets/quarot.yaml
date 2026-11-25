@@ -7,6 +7,9 @@ paper: {title: "QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs", arxiv: "2
 # heads * head_dim channels; embedding rows are not mean-centred (official fuse_layer_norms centres them for every
 # model type, which changes the outputs of an RMSNorm model; options.center_embeddings: true reproduces it);
 # Hadamard products are computed in float64 instead of fast_hadamard_transform in fp16.
+quantizers:
+  gptq: [quarot_w4a16, quarot_w4a4kv4]
+  rtn: [quarot_w4a16, quarot_w4a4kv4]
 values:
   preprocess.steps:
     value:

@@ -1,0 +1,15 @@
+method: rtn
+name: quarot_w4a16
+description: QuaRot's 4-bit weight-only setting (W4A16) with round-to-nearest weights, to be combined with the QuaRot preprocess preset.
+paper: {title: "QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs", arxiv: "2404.00456", official_repo: "https://github.com/spcl/QuaRot@5008669b08c1f11f9b64d52d16fddd47ca754c5a"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_channel, clip_search: {type: mse, grid: 100, max_shrink: 0.8, norm: 2.4}}
+    source: "paper §5 Table 7 (A16W4: asymmetric per-column weights; flags --w_bits 4 --w_asym --w_clip inferred, no repo script)"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "paper §5 (WikiText-2 perplexity)"
+# Only weights are quantized; lm_head and embeddings stay 16-bit as in the official code.

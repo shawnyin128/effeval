@@ -167,6 +167,8 @@ export interface PreprocessPreset {
   title: string;
   description: string;
   paper: { title: string; arxiv: string; official_repo: string };
+  /** Method name -> names of its presets this recipe is meant to run with. */
+  quantizers: Record<string, string[]>;
   steps: PreprocessStep[];
   versions: Record<string, string>;
 }

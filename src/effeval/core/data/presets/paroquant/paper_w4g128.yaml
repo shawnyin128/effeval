@@ -1,0 +1,62 @@
+method: paroquant
+name: paper_w4g128
+description: ParoQuant's official 4-bit recipe (group size 128, 8 rotations per linear, two-stage layer-wise training on a wikitext2/c4/redpajama mixture); weights only.
+paper: {title: "ParoQuant: Pairwise Rotation Quantization for Efficient Reasoning LLM Inference", arxiv: "2511.10645", official_repo: "https://github.com/z-lab/paroquant@8e5ac77bff10e5a47fc5491eca0ab1c4370e3d85"}
+values:
+  method.config.n_bits:
+    value: 4
+    source: "code: experiments/optimize/4bit.sh#L17 (--n-bit 4)"
+  method.config.group_size:
+    value: 128
+    source: "code: experiments/optimize/4bit.sh#L16 (--group-size 128)"
+  method.config.num_rotations:
+    value: 8
+    source: "code: experiments/optimize/4bit.sh#L18 (--num-rotations 8)"
+  method.config.num_pairs_factor:
+    value: 0.5
+    source: "code: optimize.py#L264 (num_pairs_factor = 0.5: group_size / 2 independent pairs per group and rotation)"
+  method.config.stages:
+    value:
+      - {params: {channel_scales: 0.05, angles: 0.05}, epochs: 10}
+      - {params: {weight: 1.0e-5, quantizer: 1.0e-6}, epochs: 10}
+    source: "code: experiments/optimize/4bit.sh#L14-L15 (--params 'channel_scales:0.05,angles:0.05' 'weight:1e-5,quantizer:1e-6' --epochs 10 10)"
+  method.config.weight_decay:
+    value: 0.01
+    source: "code: optimize.py#L49 (default)"
+  method.config.betas:
+    value: [0.9, 0.95]
+    source: "code: optimize.py#L50 (default)"
+  method.config.eps:
+    value: 1.0e-10
+    source: "code: optimize.py#L51 (default)"
+  method.config.loss:
+    value: smooth_l1
+    source: "code: optimize.py#L53 (default)"
+  method.config.calibration.datasets:
+    value: [wikitext2, c4, redpajama]
+    source: "code: experiments/optimize/4bit.sh#L19 (--datasets wikitext2 c4 redpajama)"
+  method.config.calibration.train_size:
+    value: 2048
+    source: "code: experiments/optimize/4bit.sh#L21 (--train-size 2048)"
+  method.config.calibration.val_dataset:
+    value: pileval
+    source: "code: experiments/optimize/4bit.sh#L20 (--val-dataset pileval)"
+  method.config.calibration.validation_size:
+    value: 64
+    source: "code: experiments/optimize/4bit.sh#L22 (--validation-size 64)"
+  method.config.calibration.seqlen:
+    value: 2048
+    source: "code: experiments/optimize/4bit.sh#L24 (--seqlen 2048)"
+  method.config.calibration.seed:
+    value: 0
+    source: "code: experiments/optimize/4bit.sh#L28 (--seed 0)"
+  method.config.batch_size:
+    value: 16
+    source: "code: experiments/optimize/4bit.sh#L23 (--batch-size 16)"
+  method.config.cache_shards:
+    value: 4
+    source: "assumed"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "assumed"
+# The paper's reported perplexities are not entered as reported values: their table and context length are unconfirmed here.

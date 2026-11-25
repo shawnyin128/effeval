@@ -1,0 +1,41 @@
+method: gptq
+name: quarot_w4a16
+description: QuaRot's 4-bit weight-only setting (W4A16) with GPTQ weights, to be combined with the QuaRot preprocess preset.
+paper: {title: "QuaRot: Outlier-Free 4-Bit Inference in Rotated LLMs", arxiv: "2404.00456", official_repo: "https://github.com/spcl/QuaRot@5008669b08c1f11f9b64d52d16fddd47ca754c5a"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_channel, clip_search: {type: mse, grid: 100, max_shrink: 0.8, norm: 2.4}}
+    source: "paper §5 Table 7 (A16W4: asymmetric per-column weights; flags --w_bits 4 --w_asym --w_clip inferred, no repo script)"
+  method.config.act_order:
+    value: false
+    source: "code: fake_quant/utils.py#L124-L127 (--act_order is opt-in; whether the paper's Table 1 used it is not stated in the repository)"
+  method.config.static_groups:
+    value: false
+    source: "code: fake_quant/gptq_utils.py#L232-L233 (static_groups=False)"
+  method.config.true_sequential:
+    value: true
+    source: "code: fake_quant/gptq_utils.py#L189-L194 (sequential k/v/q, o, up/gate, down)"
+  method.config.percdamp:
+    value: 0.01
+    source: "code: fake_quant/gptq_utils.py#L40-L41"
+  method.config.blocksize:
+    value: 128
+    source: "code: fake_quant/gptq_utils.py#L40-L41"
+  method.config.calibration.dataset:
+    value: wikitext2
+    source: "code: fake_quant/utils.py#L120 (--cal_dataset default wikitext2)"
+  method.config.calibration.n_samples:
+    value: 128
+    source: "code: fake_quant/utils.py#L122 (--nsamples default 128)"
+  method.config.calibration.seqlen:
+    value: 2048
+    source: "code: fake_quant/data_utils.py#L17-L28 (windows of seqlen 2048)"
+  method.config.calibration.seed:
+    value: 0
+    source: "code: fake_quant/utils.py#L77 (--seed default 0)"
+  tasks:
+    value: [native/wikitext2_ppl]
+    source: "paper §5 (WikiText-2 perplexity)"

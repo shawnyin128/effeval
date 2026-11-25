@@ -10,12 +10,13 @@ from effeval.core.catalog import (
     sample_count,
 )
 from effeval.core.listing import TaskListing
+from effeval.core.preprocess import builtin_preprocess_presets
 
 BUILTIN = builtin_catalog()
 
 
 @pytest.mark.compute
-@pytest.mark.parametrize("name", ["rtn", "gptq"])
+@pytest.mark.parametrize("name", ["rtn", "gptq", "paroquant"])
 def test_builtin_manifest_files_match_the_code(name):
     pytest.importorskip("torch")
     from effeval.api.execute import export_manifest
@@ -28,7 +29,12 @@ def test_builtin_manifest_files_match_the_code(name):
 
 
 def test_builtin_methods_carry_their_standard_display_titles():
-    assert {n: m.title for n, m in BUILTIN.manifests.items()} == {"base": "Base", "rtn": "RTN", "gptq": "GPTQ"}
+    assert {n: m.title for n, m in BUILTIN.manifests.items()} == {
+        "base": "Base",
+        "rtn": "RTN",
+        "gptq": "GPTQ",
+        "paroquant": "ParoQuant",
+    }
 
 
 def test_every_preset_value_has_a_source_and_reported_rows_parse():
@@ -217,3 +223,21 @@ def test_limit_schema_lets_agents_see_that_a_fraction_is_accepted():
         limit = task.params_schema["properties"]["limit"]
         assert {"integer", "number"} <= {option["type"] for option in limit["anyOf"]}
         assert "fraction" in limit["description"]
+
+
+def test_every_preset_a_preprocess_preset_pairs_with_exists():
+    pairs = [
+        (name, method, preset)
+        for name, pre in builtin_preprocess_presets().items()
+        for method, presets in pre.quantizers.items()
+        for preset in presets
+    ]
+    assert pairs
+    for name, method, preset in pairs:
+        assert preset in BUILTIN.presets[method], (name, method, preset)
+    quarot = builtin_preprocess_presets()["quarot"].quantizers
+    assert quarot == {
+        "gptq": ["quarot_w4a16", "quarot_w4a4kv4"],
+        "rtn": ["quarot_w4a16", "quarot_w4a4kv4"],
+    }
+

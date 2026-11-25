@@ -9,6 +9,8 @@ paper: {title: "DuQuant: Distributing Outliers via Dual Transformation Makes Str
 # with `seed` (official: the global CPU/CUDA RNG seeded once with --seed); smooth_q_k is omitted (a no-op unless
 # --smooth_epochs > 0, duquant.py#L206); head_dim comes from the model config (official raises when
 # heads * head_dim != hidden, int_llama_layer.py#L68-L72); K and V are quantized as `attn.k` / `attn.v` operands.
+quantizers:
+  rtn: [duquant_w4a4, duquant_w6a6]
 values:
   preprocess.steps:
     value:

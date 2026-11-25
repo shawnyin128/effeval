@@ -147,6 +147,7 @@ def _preprocess_presets() -> dict[str, dict[str, Any]]:
             "title": preset.title,
             "description": preset.description,
             "paper": preset.paper.model_dump(mode="json"),
+            "quantizers": preset.quantizers,
             "steps": [step.model_dump(mode="json") for step in resolved.steps],
             "versions": resolved.versions,
         }
@@ -700,7 +701,11 @@ def row(store: SqliteStore, catalog: Catalog, record: Record, viewer: str | None
         "method": spec.get("method", {}).get("name"),
         "preset": spec.get("method", {}).get("preset"),
         "preprocess": None if preprocess is None else preprocess.model_dump(mode="json"),
-        "label": preprocess_label(preprocess, _method_title(catalog, spec.get("method", {}).get("name"))),
+        "label": preprocess_label(
+            preprocess,
+            _method_title(catalog, spec.get("method", {}).get("name")),
+            spec.get("method", {}).get("preset"),
+        ),
         **decoding_columns(spec),
         "task": spec.get("task", {}).get("name"),
         "mode": spec.get("task", {}).get("mode"),
@@ -1009,7 +1014,8 @@ def unlink(store: SqliteStore, actor: Actor, name: str, record_id: str) -> None:
 
 def _job_display(catalog: Catalog, job: Job) -> str:
     """The job's method with its preprocessing, as "<preprocess title>[*] + <method title>"."""
-    return preprocess_label(job.spec.preprocess, _method_title(catalog, job.spec.method.name))
+    method = job.spec.method
+    return preprocess_label(job.spec.preprocess, _method_title(catalog, method.name), method.preset)
 
 
 def _job_label(catalog: Catalog, job: Job) -> str:
@@ -1464,7 +1470,9 @@ def _job_summary(jobs: list[dict[str, Any]], catalog: Catalog) -> str:
         preprocess = _preprocess_of(spec.get("preprocess"))
         if preprocess is None:
             return spec["method"]["name"]
-        return preprocess_label(preprocess, _method_title(catalog, spec["method"]["name"]))
+        return preprocess_label(
+            preprocess, _method_title(catalog, spec["method"]["name"]), spec["method"].get("preset")
+        )
 
     def names(values: list[str]) -> str:
         values = list(dict.fromkeys(values))

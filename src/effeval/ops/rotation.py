@@ -3,7 +3,8 @@
 Convention: activations are row vectors and a rotation R replaces x by x @ R. A consumer weight W [out, in]
 then becomes W @ R (`fold_input`); a producer weight W [out, in] whose output is rotated becomes R.T @ W
 (`fold_output`). Hadamard matrices are H_K^T (x) H_(2^m) / sqrt(n) for n = K * 2^m, with the base Hadamard
-matrix H_K from the table below, identical to QuaRot's `matmul_hadU(eye(n))`.
+matrix H_K from the table below, identical to QuaRot's `matmul_hadU(eye(n))`. Sizes QuaRot does not cover use
+the Paley type I matrices of PALEY_BASES (K - 1 a prime, 3 mod 4), tried only after QuaRot's bases.
 
 The base matrices (K in HADAMARD_BASES) are taken from QuaRot fake_quant/hadamard_utils.py
 (https://github.com/spcl/QuaRot, commit 5008669, Apache License 2.0; matrices from
@@ -19,6 +20,9 @@ import torch
 
 # QuaRot's get_hadK tries these in this order (40 before 20) when n % K == 0 and n / K is a power of two.
 HADAMARD_BASES = (172, 156, 140, 108, 60, 52, 36, 28, 40, 20, 12)
+
+# Paley type I orders; tried after HADAMARD_BASES, so sizes QuaRot supports keep their matrices.
+PALEY_BASES = (68, 152, 200)
 
 _BASE_BITS = {
     12: (
@@ -224,19 +228,38 @@ def is_pow2(n: int) -> bool:
 
 
 def hadamard_factor(n: int) -> tuple[int, int]:
-    """Split n = K * 2^m with K = 1 or K in HADAMARD_BASES, in QuaRot's search order.
+    """Split n = K * 2^m with K = 1 or K in HADAMARD_BASES + PALEY_BASES, trying QuaRot's bases first.
 
     Raises ValueError when n has no such factorisation.
     """
-    for k in HADAMARD_BASES:
+    for k in HADAMARD_BASES + PALEY_BASES:
         if n % k == 0 and is_pow2(n // k):
             return k, n // k
     if is_pow2(n):
         return 1, n
-    raise ValueError(f"no Hadamard matrix of size {n}: n must be 2^m or K * 2^m with K in {HADAMARD_BASES}")
+    raise ValueError(
+        f"no Hadamard matrix of size {n}: n must be 2^m or K * 2^m with K in {HADAMARD_BASES + PALEY_BASES}"
+    )
+
+
+def _paley_i(q: int) -> torch.Tensor:
+    """Paley type I Hadamard matrix of order q + 1 (float64 +-1) for a prime q congruent to 3 mod 4."""
+    residues = torch.zeros(q, dtype=torch.bool)
+    residues[(torch.arange(1, q) ** 2) % q] = True
+    chi = torch.where(residues, 1, -1)
+    chi[0] = 0
+    idx = torch.arange(q)
+    jacobsthal = chi[(idx[None, :] - idx[:, None]) % q]
+    skew = torch.zeros(q + 1, q + 1, dtype=torch.int64)
+    skew[0, 1:] = 1
+    skew[1:, 0] = -1
+    skew[1:, 1:] = jacobsthal
+    return (skew + torch.eye(q + 1, dtype=torch.int64)).to(torch.float64)
 
 
 def _base_matrix(k: int) -> torch.Tensor:
+    if k in PALEY_BASES:
+        return _paley_i(k - 1)
     raw = torch.frombuffer(bytearray(base64.b64decode(_BASE_BITS[k])), dtype=torch.uint8)
     shifts = torch.arange(7, -1, -1, dtype=torch.uint8)
     bits = ((raw[:, None] >> shifts) & 1).flatten()[: k * k]
@@ -258,14 +281,27 @@ def hadamard(n: int) -> torch.Tensor:
     return full / math.sqrt(n)
 
 
+def hadamard_parts(n: int) -> tuple[torch.Tensor, int]:
+    """(H_K, m) with hadamard(n) = H_K^T (x) H_(2^m) / sqrt(n) and H_K the unnormalised float64 base matrix.
+
+    Raises ValueError when n has no Hadamard factorisation.
+    """
+    k, m = hadamard_factor(n)
+    return (torch.ones(1, 1, dtype=torch.float64) if k == 1 else _base_matrix(k)), m
+
+
+def random_signs(n: int, seed: int) -> torch.Tensor:
+    """The float64 +-1 vector [n] drawn by `random_hadamard` for `seed`."""
+    generator = torch.Generator().manual_seed(seed)
+    return torch.randint(low=0, high=2, size=(n,), generator=generator).to(torch.float64) * 2 - 1
+
+
 def random_hadamard(n: int, seed: int) -> torch.Tensor:
     """diag(s) @ hadamard(n) with random signs s, the draw QuaRot makes after `set_seed(seed)`.
 
     Equal to QuaRot's `random_hadamard_matrix` when its global RNG was seeded with `seed` just before.
     """
-    generator = torch.Generator().manual_seed(seed)
-    signs = torch.randint(low=0, high=2, size=(n,), generator=generator).to(torch.float64) * 2 - 1
-    return signs[:, None] * hadamard(n)
+    return random_signs(n, seed)[:, None] * hadamard(n)
 
 
 def random_orthogonal(n: int, seed: int) -> torch.Tensor:

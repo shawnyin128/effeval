@@ -294,3 +294,58 @@ def test_gptq_hessian_is_built_from_the_input_after_forward_pre_hooks():
 
     assert torch.equal(down.weight.data, solve(channel_scale))
     assert not torch.equal(down.weight.data, solve(torch.ones(96)))  # the transform changes the solution
+
+
+def _official_llama_sequential(windows, true_sequential):
+    from types import SimpleNamespace
+
+    model = tiny_qwen3()
+    model.seqlen = windows[0].shape[1]
+    args = SimpleNamespace(
+        nsamples=len(windows),
+        wbits=3,
+        sym=False,
+        percdamp=0.01,
+        groupsize=-1,
+        act_order=False,
+        static_groups=False,
+        true_sequential=true_sequential,
+    )
+    gptq_official.llama_sequential(model, [(w,) for w in windows], "cpu", args)
+    return model
+
+
+@pytest.mark.parametrize("true_sequential", [False, True])
+def test_quantize_model_bit_identical_to_official_llama_sequential(true_sequential):
+    gen = torch.Generator().manual_seed(5)
+    windows = [torch.randint(0, 97, (1, 16), generator=gen) for _ in range(4)]
+    official = _official_llama_sequential(windows, true_sequential)
+    ours = tiny_qwen3()
+    quantize_model(ours, windows, _config(true_sequential=true_sequential))
+    for (name, a), (_, b) in zip(ours.named_parameters(), official.named_parameters(), strict=True):
+        assert torch.equal(a, b), name
+    untouched = tiny_qwen3()
+    changed = [
+        n
+        for (n, a), b in zip(untouched.named_parameters(), ours.parameters(), strict=True)
+        if not torch.equal(a, b)
+    ]
+    assert any("down_proj" in n for n in changed)
+
+
+def test_true_sequential_changes_the_solution():
+    gen = torch.Generator().manual_seed(5)
+    windows = [torch.randint(0, 97, (1, 16), generator=gen) for _ in range(4)]
+    plain, sequential = tiny_qwen3(), tiny_qwen3()
+    quantize_model(plain, windows, _config())
+    quantize_model(sequential, windows, _config(true_sequential=True))
+    plain_layer, sequential_layer = plain.model.layers[0], sequential.model.layers[0]
+    assert not torch.equal(plain_layer.mlp.down_proj.weight, sequential_layer.mlp.down_proj.weight)
+    assert torch.equal(plain_layer.self_attn.q_proj.weight, sequential_layer.self_attn.q_proj.weight)
+
+
+def test_true_sequential_rejects_a_linear_outside_the_groups(monkeypatch):
+    monkeypatch.setattr("effeval.methods.quantization.gptq.TRUE_SEQUENTIAL_GROUPS", (("attn.k_proj",),))
+    windows = [torch.randint(0, 97, (1, 16))]
+    with pytest.raises(ValueError, match="no group for linears"):
+        quantize_model(tiny_qwen3(), windows, _config(true_sequential=True))

@@ -5,6 +5,9 @@ paper: {title: "SmoothQuant + QuaRot (combination of the two papers' preprocessi
 # No reference implementation (source: assumed): neither paper combines the two methods. The steps are the quarot and smoothquant presets steps in that order. The rotation step comes first because the
 # residual rotation folds the norm gains into the linears and would cancel a scaling folded into a norm gain before it. Each step has the settings of
 # its own preset (smoothquant.yaml, quarot.yaml) and the same Qwen3 deviations.
+quantizers:
+  gptq: [quarot_w4a4kv4]
+  rtn: [quarot_w4a4kv4]
 values:
   preprocess.steps:
     value:

@@ -19,7 +19,8 @@ from effeval.core.preprocess import (  # noqa: E402
 )
 from effeval.core.types import InProcess  # noqa: E402
 from effeval.methods.preprocess import engine  # noqa: E402
-from effeval.ops import online, sites  # noqa: E402
+from effeval.methods.preprocess import rotation as rotation_method  # noqa: E402
+from effeval.ops import online, rotation, sites  # noqa: E402
 from effeval.runtime import hf  # noqa: E402
 from reference import quarot_rotation_official as official  # noqa: E402
 from test_sites import padded_batch  # noqa: E402
@@ -100,6 +101,48 @@ def test_each_quarot_position_alone_keeps_logits(model, position):
         assert not torch.allclose(logits_of(model), base, atol=LOGITS_ATOL), (
             "removing the online op must break the folded model, else the op does nothing"
         )
+
+
+@compute
+@pytest.mark.parametrize("source", [{"type": "hadamard"}, {"type": "random_hadamard", "seed": 5}])
+def test_wide_hadamard_linear_input_uses_the_kronecker_op_and_keeps_logits(monkeypatch, source):
+    entry = {**DOWN_PROJ, "source": source}
+    narrow = build_tiny_qwen3(intermediate=136)
+    base = logits_of(narrow)
+    applied = apply_to(narrow, make_preprocess(entry))
+    assert type(applied.results[0].online[0].fn) is online.RightMultiply
+    applied.online_ops.remove()
+
+    monkeypatch.setattr(rotation_method, "KRON_MIN_WIDTH", 64)
+    wide = build_tiny_qwen3(intermediate=136)
+    applied = apply_to(wide, make_preprocess(entry))
+    op = applied.results[0].online[0].fn
+    assert type(op) is online.KronRightMultiply
+    assert torch.allclose(logits_of(wide), base, atol=LOGITS_ATOL)
+    x = torch.randn(4, 136)
+    dense = x.double() @ rotation_method.rotation_matrix(
+        make_preprocess(entry).steps[0].entries[0].source, 136, "linear.mlp.down_proj.input"
+    )
+    assert (op(x) - dense.float()).abs().max() < 1e-5
+
+
+@compute
+@pytest.mark.parametrize(
+    ("width", "kron"),
+    [(12288, False), (11008, False), (9728, True)],
+    ids=["12288=12*1024", "11008=172*64", "9728=152*64"],
+)
+def test_kronecker_online_op_only_for_paley_factors(width, kron):
+    src = make_preprocess(DOWN_PROJ).steps[0].entries[0].source
+    position = "linear.mlp.down_proj.input"
+    matrix = rotation_method.rotation_matrix(src, width, position)
+    op = rotation_method._linear_input_op(src, width, position, matrix)
+    if kron:
+        assert type(op) is online.KronRightMultiply
+        return
+    assert type(op) is online.RightMultiply
+    x = torch.randn(3, width)
+    assert torch.equal(op(x), (x @ matrix.float()))
 
 
 @compute
@@ -189,7 +232,7 @@ def test_frozen_source_version_must_match_the_installed_code():
 
 @compute
 def test_unsupported_hadamard_size_is_refused_and_block_fallback_keeps_logits():
-    model = build_tiny_qwen3(head_dim=32, intermediate=1216)
+    model = build_tiny_qwen3(head_dim=32, intermediate=5632)
     with pytest.raises(engine.EngineError, match="no usable Hadamard"):
         apply_to(model, make_preprocess(DOWN_PROJ))
     fallback = {**DOWN_PROJ, "source": {"type": "random_hadamard", "fallback": "block_hadamard"}}
@@ -320,16 +363,30 @@ def test_label_is_preset_title_plus_method_title_and_marks_deviations():
 
 def test_hadamard_size_rule_checks_each_entry_against_the_model_dimension():
     steps = quarot_preset_steps()
-    unsupported = resolve_quarot("gptq", model="qwen3-4b", steps=steps)
+    assert resolve_quarot("gptq", model="qwen3-4b", steps=steps).ok
+
+    catalog = builtin_catalog()
+    shape = catalog.models["qwen3-4b"].shape.model_copy(update={"intermediate": 5632})
+    entry = catalog.models["qwen3-4b"].model_copy(update={"shape": shape})
+    fake = catalog.model_copy(update={"models": {**catalog.models, "qwen3-4b": entry}})
+    raw = {
+        "field": "quantization",
+        "model": {"name": "qwen3-4b"},
+        "method": {"name": "gptq", "preset": "quarot_w4a4kv4"},
+        "preprocess": {"preset": "quarot", "steps": steps},
+    }
+    unsupported = validate_module.resolve(raw, fake)
     errors = [i for i in unsupported.issues if i.code == "preprocess.hadamard_size"]
     assert [e.paths for e in errors] == [["preprocess.steps[0].entries[3].source"]]
-    assert "9728" in errors[0].message
+    assert "5632" in errors[0].message
+    with pytest.raises(ValueError, match="no Hadamard matrix"):
+        rotation.hadamard_factor(5632)
 
     steps[0]["entries"][3]["source"] = {"type": "random_hadamard", "seed": 0, "fallback": "block_hadamard"}
-    assert resolve_quarot("gptq", model="qwen3-4b", steps=steps).ok
+    assert validate_module.resolve(raw, fake).ok
 
     steps[0]["entries"][3]["source"] = {"type": "random_orthogonal", "seed": 0}
-    assert resolve_quarot("gptq", model="qwen3-4b", steps=steps).ok
+    assert validate_module.resolve(raw, fake).ok
 
 
 @compute

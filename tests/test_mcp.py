@@ -158,7 +158,7 @@ def test_describe_leaves_out_the_task_list_but_keeps_the_common_tasks_and_counts
     }
     assert brief["task_counts"]["lm_eval"] == 8 and brief["task_counts"]["evalscope"] == 3
     assert "lm_eval/mmlu_anatomy" not in json.dumps(brief)
-    titles = {"base": "Base", "rtn": "RTN", "gptq": "GPTQ"}
+    titles = {"base": "Base", "rtn": "RTN", "gptq": "GPTQ", "paroquant": "ParoQuant"}
     assert {n: m["title"] for n, m in brief["methods"].items()} == titles
     assert {n: m["title"] for n, m in full["methods"].items()} == titles
     assert len(json.dumps(brief)) < len(json.dumps(full)) - len(json.dumps(full["tasks"])) // 2
@@ -309,7 +309,9 @@ def test_guide_explains_preprocessing_with_a_quarot_gptq_example():
 
 def test_run_spec_and_validate_spec_accept_a_preprocess_preset_name_or_steps(mcp):
     call, _, spawner, _ = mcp
-    spec = {**GPTQ_SPEC, "preprocess": "quarot"}
+    implicit = call("validate_spec", spec={**GPTQ_SPEC, "preprocess": "quarot"}).structured_content["result"]
+    assert "preset.needs_choice" in {i["code"] for i in implicit if i["severity"] == "error"}
+    spec = {**GPTQ_SPEC, "method": {"name": "gptq", "preset": "quarot_w4a4kv4"}, "preprocess": "quarot"}
     issues = call("validate_spec", spec=spec).structured_content["result"]
     assert not [i for i in issues if i["severity"] == "error"]
     unknown = call("validate_spec", spec={**GPTQ_SPEC, "preprocess": "no-such"}).structured_content["result"]
@@ -318,7 +320,7 @@ def test_run_spec_and_validate_spec_accept_a_preprocess_preset_name_or_steps(mcp
     assert started["started"] is True
     script = (spawner.calls[0][1]["cwd"] / "run.sh").read_text()
     assert "preprocess:" in script and "preset: quarot" in script and "random_hadamard" in script
-    as_dict = call("run_spec", spec={**GPTQ_SPEC, "preprocess": {"preset": "quarot"}}).structured_content
+    as_dict = call("run_spec", spec={**spec, "preprocess": {"preset": "quarot"}}).structured_content
     assert as_dict["started"] is True and as_dict["jobs"] == started["jobs"]
 
 
@@ -334,14 +336,14 @@ def test_save_table_with_a_quarot_gptq_row_gives_a_pending_cell_with_its_label(m
             "models": ["qwen3-0.6b"],
             "tasks": ["native/wikitext2_ppl"],
             "rows": [
-                {"method": {"name": "gptq"}, "preprocess": "quarot"},
+                {"method": {"name": "gptq", "preset": "quarot_w4a4kv4"}, "preprocess": "quarot"},
                 {"label": "plain GPTQ", "method": {"name": "gptq"}},
             ],
         },
     ).structured_content
     rows = {r["key"]: r for r in table["blocks"][0]["rows"]}
     cell = rows["row0"]["cells"]["native/wikitext2_ppl"]
-    assert rows["row0"]["label"] == rows["row0"]["title"] == "QuaRot + GPTQ"
+    assert rows["row0"]["label"] == rows["row0"]["title"] == "QuaRot + GPTQ (quarot_w4a4kv4)"
     assert cell["status"] == "pending"
     assert rows["row1"]["title"] == "GPTQ" and rows["row1"]["preprocess"] is None
     assert cell["run_key"] != rows["row1"]["cells"]["native/wikitext2_ppl"]["run_key"]

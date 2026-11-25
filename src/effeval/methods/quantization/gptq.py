@@ -37,6 +37,11 @@ class GPTQConfig(StrictModel):
     static_groups: bool
     percdamp: float = Field(gt=0.0)
     blocksize: int = Field(ge=1)
+    true_sequential: bool = Field(
+        default=False,
+        description="Quantize each layer's linears in groups (k/v/q, o, up/gate, down), re-running the layer "
+        "between groups so later groups see the quantized earlier ones, as the official `--true-sequential`.",
+    )
     calibration: Calibration
 
     @model_validator(mode="after")
@@ -164,11 +169,46 @@ def quantize_weight(
     return Q
 
 
+TRUE_SEQUENTIAL_GROUPS = (
+    ("attn.k_proj", "attn.v_proj", "attn.q_proj"),
+    ("attn.o_proj",),
+    ("mlp.up_proj", "mlp.gate_proj"),
+    ("mlp.down_proj",),
+)
+
+
 def _hessian_hook(accumulator: HessianAccumulator):
     def hook(_module: nn.Module, inp: tuple, _out: torch.Tensor) -> None:
         accumulator.add_batch(inp[0].data)
 
     return hook
+
+
+def _quantize_group(
+    runner: LayerRunner, layer: nn.Module, group: list[tuple[nn.Module, IntFormat]], cfg: GPTQConfig
+) -> None:
+    """Collect Hessians of `group`'s linears over all windows through `layer`, then quantize them in place."""
+    accumulators = {
+        id(module): HessianAccumulator(module.weight.shape[1], module.weight.device) for module, _ in group
+    }
+    hooks = [module.register_forward_hook(_hessian_hook(accumulators[id(module)])) for module, _ in group]
+    try:
+        for hidden in runner.inputs:
+            runner.forward(layer, hidden)
+    finally:
+        for hook in hooks:
+            hook.remove()
+    for module, fmt in group:
+        quantized = quantize_weight(
+            module.weight.data,
+            accumulators[id(module)].H,
+            fmt,
+            blocksize=cfg.blocksize,
+            percdamp=cfg.percdamp,
+            act_order=cfg.act_order,
+            static_groups=cfg.static_groups,
+        )
+        module.weight.data = quantized.reshape(module.weight.shape).to(module.weight.data.dtype)
 
 
 @torch.no_grad()
@@ -178,39 +218,26 @@ def quantize_model(model: nn.Module, windows: list[torch.Tensor], cfg: GPTQConfi
     Rules on non-weight sites are attached once every weight is quantized.
     """
     assignment, _ = sites.resolve(model, cfg.weight_rules)
-    targets: dict[int, list[tuple[nn.Module, IntFormat]]] = defaultdict(list)
-    for (_site, layer), (_rule, location, fmt) in assignment.items():
+    targets: dict[int, dict[str, tuple[nn.Module, IntFormat]]] = defaultdict(dict)
+    for (site, layer), (_rule, location, fmt) in assignment.items():
         if layer is None:
             raise ValueError("GPTQ quantizes decoder-layer linears; lm_head is not supported")
-        targets[layer].append((location.module, fmt))
+        targets[layer][site.removeprefix("linear.").removesuffix(".weight")] = (location.module, fmt)
 
     with LayerRunner(model, windows) as runner:
         for index, layer in runner:
-            accumulators = {
-                id(module): HessianAccumulator(module.weight.shape[1], module.weight.device)
-                for module, _ in targets.get(index, [])
-            }
-            hooks = [
-                module.register_forward_hook(_hessian_hook(accumulators[id(module)]))
-                for module, _ in targets.get(index, [])
-            ]
-            try:
-                for hidden in runner.inputs:
-                    runner.forward(layer, hidden)
-            finally:
-                for hook in hooks:
-                    hook.remove()
-            for module, fmt in targets.get(index, []):
-                quantized = quantize_weight(
-                    module.weight.data,
-                    accumulators[id(module)].H,
-                    fmt,
-                    blocksize=cfg.blocksize,
-                    percdamp=cfg.percdamp,
-                    act_order=cfg.act_order,
-                    static_groups=cfg.static_groups,
-                )
-                module.weight.data = quantized.reshape(module.weight.shape).to(module.weight.data.dtype)
+            layer_targets = targets.get(index, {})
+            if cfg.true_sequential:
+                grouped = {name for group in TRUE_SEQUENTIAL_GROUPS for name in group}
+                unplaced = sorted(set(layer_targets) - grouped)
+                if unplaced:
+                    raise ValueError(f"true_sequential has no group for linears {unplaced} in layer {index}")
+                steps = [[n for n in group if n in layer_targets] for group in TRUE_SEQUENTIAL_GROUPS]
+            else:
+                steps = [list(layer_targets)]
+            for names in steps:
+                if names:
+                    _quantize_group(runner, layer, [layer_targets[n] for n in names], cfg)
 
     if cfg.other_rules:
         sites.attach(model, cfg.other_rules)

@@ -8,6 +8,8 @@ paper: {title: "AWQ: Activation-aware Weight Quantization for LLM Compression an
 # fp16); effeval's asymmetric integer grid includes zero in every group's range (GPTQ convention) while AWQ's does not,
 # which only matters for groups whose weights are all positive or all negative; the next layer's input is the output
 # of the unscaled fp layer, as in the official code.
+quantizers:
+  rtn: [awq_w4g128, awq_w3g128]
 values:
   preprocess.steps:
     value:

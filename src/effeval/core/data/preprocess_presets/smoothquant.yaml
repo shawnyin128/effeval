@@ -6,6 +6,8 @@ paper: {title: "SmoothQuant: Accurate and Efficient Post-Training Quantization f
 # to Qwen3's RMSNorm gains; alpha is the repository default 0.5 (no value exists for Qwen3; the README's Llama values
 # are 0.8-0.9); scales are computed in float32 (the official code works in the model dtype); activation maxima are
 # collected on the model as loaded (the official generate_act_scales.py loads fp16).
+quantizers:
+  rtn: [smoothquant_w8a8]
 values:
   preprocess.steps:
     value:

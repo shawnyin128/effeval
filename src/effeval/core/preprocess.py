@@ -221,13 +221,17 @@ def resolve_preprocess(preprocess: Preprocess) -> ResolvedPreprocess:
 
 
 class PreprocessPresetDef(StrictModel):
-    """A paper's preprocessing recipe; `values` maps dotted RunSpec paths under `preprocess.` to values."""
+    """A paper's preprocessing recipe; `values` maps dotted RunSpec paths under `preprocess.` to values.
+
+    `quantizers` maps a method name to the names of its presets this recipe is meant to run with.
+    """
 
     name: str
     title: str
     description: str
     paper: PaperRef
     values: dict[str, PresetValue]
+    quantizers: dict[str, list[str]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _paths_under_preprocess(self) -> PreprocessPresetDef:
@@ -269,10 +273,22 @@ def preprocess_title(preprocess: Preprocess | ResolvedPreprocess) -> str:
     return preset.title if same else f"{preset.title}*"
 
 
-def preprocess_label(preprocess: Preprocess | ResolvedPreprocess | None, method_title: str) -> str:
-    """Run label `<preprocess title>[*] + <method title>`, e.g. "QuaRot + GPTQ"; the method title if none."""
+def preprocess_label(
+    preprocess: Preprocess | ResolvedPreprocess | None, method_title: str, method_preset: str | None = None
+) -> str:
+    """Run label `<preprocess title>[*] + <method title>[ (<method preset>)]`.
+
+    Example: "QuaRot + GPTQ (quarot_w4a4kv4)".
+
+    The method title alone if there is no preprocess; the preset is shown only when it names a preset
+    (not `None` and not the `default` sentinel).
+    """
+    from effeval.core.spec import DEFAULT_PRESET  # spec imports this module
+
     if preprocess is None:
         return method_title
+    if method_preset is not None and method_preset != DEFAULT_PRESET:
+        method_title = f"{method_title} ({method_preset})"
     return f"{preprocess_title(preprocess)} + {method_title}"
 
 
