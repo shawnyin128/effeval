@@ -1,0 +1,726 @@
+name: codequant2
+title: CodeQuant2
+version: '1'
+field: quantization
+runtime: hf
+entry: effeval.methods.quantization.codequant2:codequant2
+capabilities:
+  modes: []
+  handles:
+  - in_process
+uses:
+- quant_rules
+architectures: null
+config_schema:
+  $defs:
+    AcaCalibration:
+      additionalProperties: false
+      properties:
+        dataset:
+          description: Hugging Face dataset id with a `text` column.
+          title: Dataset
+          type: string
+        split:
+          default: train
+          description: Dataset split.
+          title: Split
+          type: string
+        n_samples:
+          description: Rows kept after shuffling the split with dataset_seed.
+          minimum: 1
+          title: N Samples
+          type: integer
+        dataset_seed:
+          default: 42
+          description: Seed of the dataset shuffle that picks the rows.
+          title: Dataset Seed
+          type: integer
+        batch_size:
+          description: Rows per batch.
+          minimum: 1
+          title: Batch Size
+          type: integer
+        max_length:
+          description: Tokens per row; rows are padded to this length.
+          minimum: 1
+          title: Max Length
+          type: integer
+        shuffle_seed:
+          default: 42
+          description: Seed of the batch-order generator, shared by the passes of
+            all groups.
+          title: Shuffle Seed
+          type: integer
+        enable_thinking:
+          default: false
+          description: Passed to the chat template of each row.
+          title: Enable Thinking
+          type: boolean
+      required:
+      - dataset
+      - n_samples
+      - batch_size
+      - max_length
+      title: AcaCalibration
+      type: object
+    AcaConfig:
+      additionalProperties: false
+      properties:
+        choices:
+          default:
+          - 8
+          - 16
+          - 32
+          description: 'Cluster counts: smallest, base (the rules'' centroids) and
+            largest.'
+          items:
+            type: integer
+          maxItems: 3
+          minItems: 3
+          title: Choices
+          type: array
+        calibration:
+          $ref: '#/$defs/AcaCalibration'
+        layers_per_group:
+          default: 10
+          description: Decoder layers scored per pass; each group runs over all batches.
+          minimum: 1
+          title: Layers Per Group
+          type: integer
+        change_ratio:
+          default: 0.15
+          description: At most this fraction of a group's matrices changes.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Change Ratio
+          type: number
+        micro_batch_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Rows per forward/backward chunk of a batch; the result does
+            not depend on it. None runs the whole batch at once.
+          title: Micro Batch Size
+      required:
+      - calibration
+      title: AcaConfig
+      type: object
+    ClipSearch:
+      additionalProperties: false
+      description: 'Per-unit search for the clipping ratio that minimises the weight
+        reconstruction error.
+
+
+        Candidates are p = 1 - i / grid for i in range(int(max_shrink * grid)); each
+        shrinks the unit''s range to
+
+        p of its min-max range, and the candidate with the smallest sum of |dequantized
+        - original|^norm wins
+
+        (the first one on ties). This is the `--w_clip` search of QuaRot (quant_utils.py
+        `WeightQuantizer`) and
+
+        of the GPTQ repository''s `mse` option.'
+      properties:
+        type:
+          const: mse
+          title: Type
+          type: string
+        grid:
+          default: 100
+          description: Resolution of the candidate ratios.
+          minimum: 1
+          title: Grid
+          type: integer
+        max_shrink:
+          default: 0.8
+          description: Largest shrink; candidates stop before 1 - max_shrink.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Max Shrink
+          type: number
+        norm:
+          default: 2.4
+          description: Exponent of the error summed over a unit.
+          exclusiveMinimum: 0.0
+          title: Norm
+          type: number
+      required:
+      - type
+      title: ClipSearch
+      type: object
+    CodebookFormat:
+      additionalProperties: false
+      description: 'Weights only: each unit (a row, or group_size consecutive values
+        of a row) keeps `centroids` values
+
+        fitted by k-means, and every element is replaced by the nearest centroid of
+        its unit.'
+      properties:
+        type:
+          const: codebook
+          title: Type
+          type: string
+        centroids:
+          description: Codebook entries per unit.
+          maximum: 256
+          minimum: 1
+          title: Centroids
+          type: integer
+        granularity:
+          description: 'Unit: per_channel one codebook per output row, per_group one
+            per group_size values.'
+          enum:
+          - per_channel
+          - per_group
+          title: Granularity
+          type: string
+        group_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Values per codebook when granularity is per_group.
+          title: Group Size
+        kmeans:
+          $ref: '#/$defs/KMeansConfig'
+      required:
+      - type
+      - centroids
+      - granularity
+      title: CodebookFormat
+      type: object
+    FpFormat:
+      additionalProperties: false
+      description: 'Low-precision float `eXmY` with a float32 scale `absmax / max_representable`
+        per granularity unit.
+
+
+        `special` selects which codes are reserved: `ieee` (inf/nan, e.g. e5m2), `fn`
+        (only the all-ones code is
+
+        NaN, e.g. e4m3fn), `none` (all codes finite, e.g. OCP FP6/FP4). `auto` picks
+        ieee for e5m2, fn for e4m3
+
+        and none otherwise.'
+      properties:
+        type:
+          const: fp
+          title: Type
+          type: string
+        encoding:
+          description: 'eXmY: exponent and mantissa bits, e.g. e4m3, e2m1.'
+          title: Encoding
+          type: string
+        special:
+          default: auto
+          description: 'Reserved codes: ieee inf/NaN, fn NaN only, none all finite.'
+          enum:
+          - auto
+          - ieee
+          - fn
+          - none
+          title: Special
+          type: string
+        granularity:
+          description: 'Scale unit: per_tensor one scale, per_channel one per output
+            row (weights), per_token one per vector (activations), per_group every
+            group_size values.'
+          enum:
+          - per_tensor
+          - per_channel
+          - per_token
+          - per_group
+          title: Granularity
+          type: string
+        group_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Values per scale when granularity is per_group.
+          title: Group Size
+        clip_ratio:
+          default: 1.0
+          description: Shrink the range to this fraction of absmax before rounding.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Clip Ratio
+          type: number
+        group_axis:
+          anyOf:
+          - enum:
+            - channel
+            - token
+            type: string
+          - type: 'null'
+          default: null
+          description: 'Axis a per_group scale unit spans. channel (default): group_size
+            consecutive features of one token. token: group_size consecutive tokens
+            of one feature. Sequence-shaped sites only.'
+          title: Group Axis
+        residual:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Keep the most recent residual tokens in full precision; only
+            older tokens are quantized. With group_axis token the quantized span is
+            cut to whole groups. Sequence-shaped sites only.
+          title: Residual
+      required:
+      - type
+      - encoding
+      - granularity
+      title: FpFormat
+      type: object
+    GenerationConfig:
+      additionalProperties: false
+      properties:
+        max_new_tokens:
+          default: 256
+          minimum: 1
+          title: Max New Tokens
+          type: integer
+        temperature:
+          default: 0.6
+          exclusiveMinimum: 0.0
+          title: Temperature
+          type: number
+        top_p:
+          default: 0.95
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Top P
+          type: number
+        top_k:
+          default: 20
+          minimum: 1
+          title: Top K
+          type: integer
+        batch_size:
+          default: 16
+          description: Prompts generated together.
+          minimum: 1
+          title: Batch Size
+          type: integer
+      title: GenerationConfig
+      type: object
+    IntFormat:
+      additionalProperties: false
+      description: 'Uniform integer grid.
+
+
+        Asymmetric: min-max range that always contains zero, zero point `round(-min
+        / scale)`; this is exactly the
+
+        grid of the official GPTQ code (quant.py `Quantizer.find_params`) and the
+        paper''s RTN baseline.
+
+        Symmetric: `scale = absmax / (2^(bits-1) - 1)`, codes clamped to [-2^(bits-1),
+        2^(bits-1) - 1].'
+      properties:
+        type:
+          const: int
+          title: Type
+          type: string
+        bits:
+          description: Integer bit width.
+          maximum: 8
+          minimum: 2
+          title: Bits
+          type: integer
+        symmetric:
+          description: 'Symmetric: scale = absmax / (2^(bits-1) - 1). Asymmetric:
+            min-max grid, zero point.'
+          title: Symmetric
+          type: boolean
+        granularity:
+          description: 'Scale unit: per_tensor one scale, per_channel one per output
+            row (weights), per_token one per vector (activations), per_group every
+            group_size values.'
+          enum:
+          - per_tensor
+          - per_channel
+          - per_token
+          - per_group
+          title: Granularity
+          type: string
+        group_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Values per scale when granularity is per_group.
+          title: Group Size
+        clip_ratio:
+          default: 1.0
+          description: Shrink the range to this fraction of absmax before rounding.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Clip Ratio
+          type: number
+        clip_search:
+          anyOf:
+          - $ref: '#/$defs/ClipSearch'
+          - type: 'null'
+          default: null
+          description: 'Weights only: search each scale unit''s clipping ratio by
+            reconstruction error instead of using clip_ratio.'
+        zero_point:
+          anyOf:
+          - enum:
+            - integer
+            - float
+            type: string
+          - type: 'null'
+          default: null
+          description: 'Asymmetric only. integer (default): the range always contains
+            zero and the zero point is an integer. float: the grid spans exactly [min,
+            max] of the unit, offset by min.'
+          title: Zero Point
+        group_axis:
+          anyOf:
+          - enum:
+            - channel
+            - token
+            type: string
+          - type: 'null'
+          default: null
+          description: 'Axis a per_group scale unit spans. channel (default): group_size
+            consecutive features of one token. token: group_size consecutive tokens
+            of one feature. Sequence-shaped sites only.'
+          title: Group Axis
+        residual:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Keep the most recent residual tokens in full precision; only
+            older tokens are quantized. With group_axis token the quantized span is
+            cut to whole groups. Sequence-shaped sites only.
+          title: Residual
+      required:
+      - type
+      - bits
+      - symmetric
+      - granularity
+      title: IntFormat
+      type: object
+    KMeansConfig:
+      additionalProperties: false
+      description: Lloyd iterations of a codebook fit, started from k-means++ draws
+        of a generator seeded with `seed`.
+      properties:
+        iters:
+          default: 300
+          description: Maximum Lloyd iterations.
+          minimum: 0
+          title: Iters
+          type: integer
+        tol:
+          default: 1.0e-06
+          description: Stop once no centroid moves by more than this (absolute).
+          minimum: 0.0
+          title: Tol
+          type: number
+        seed:
+          default: 42
+          description: Seed of the k-means++ generator, created afresh per matrix.
+          title: Seed
+          type: integer
+        compute_dtype:
+          default: weight
+          description: 'Dtype the fit runs in: the weight''s own dtype or float32.'
+          enum:
+          - weight
+          - float32
+          title: Compute Dtype
+          type: string
+      title: KMeansConfig
+      type: object
+    MxFormat:
+      additionalProperties: false
+      description: 'Block-scaled format along the last dimension.
+
+
+        `scale: e8m0` follows the OCP Microscaling rule: shared scale `2^(floor(log2(block_absmax))
+        - emax_elem)`.
+
+        `scale: e4m3` follows the two-level NVFP4-style rule: a float32 tensor scale
+        plus an e4m3 block scale.'
+      properties:
+        type:
+          const: mx
+          title: Type
+          type: string
+        element:
+          description: Element format eXmY, e.g. e2m1 for MXFP4.
+          title: Element
+          type: string
+        block_size:
+          description: Values sharing one scale.
+          minimum: 2
+          title: Block Size
+          type: integer
+        scale:
+          description: 'e8m0: OCP power-of-two scale. e4m3: NVFP4-style two-level
+            scale.'
+          enum:
+          - e8m0
+          - e4m3
+          title: Scale
+          type: string
+      required:
+      - type
+      - element
+      - block_size
+      - scale
+      title: MxFormat
+      type: object
+    QuantRule:
+      additionalProperties: false
+      description: Quantize the tensors at `sites` within `layers`; later rules override
+        earlier ones at the same spot.
+      properties:
+        sites:
+          description: Where to quantize, e.g. linear.*.weight, linear.mlp.*.input,
+            attn.q.
+          items:
+            type: string
+          minItems: 1
+          title: Sites
+          type: array
+        layers:
+          anyOf:
+          - type: integer
+          - type: string
+          - items:
+              anyOf:
+              - type: integer
+              - type: string
+            type: array
+          default: all
+          description: 'Decoder layers: all, an index, a range 0-15, a list, or re:<regex>.'
+          title: Layers
+        quant:
+          discriminator:
+            mapping:
+              codebook: '#/$defs/CodebookFormat'
+              fp: '#/$defs/FpFormat'
+              int: '#/$defs/IntFormat'
+              mx: '#/$defs/MxFormat'
+            propertyName: type
+          oneOf:
+          - $ref: '#/$defs/IntFormat'
+          - $ref: '#/$defs/FpFormat'
+          - $ref: '#/$defs/MxFormat'
+          - $ref: '#/$defs/CodebookFormat'
+          title: Quant
+      required:
+      - sites
+      - quant
+      title: QuantRule
+      type: object
+    RacCalibration:
+      additionalProperties: false
+      description: 'Reasoning-aware calibration: model-written traces for math problems
+        mixed with plain text.'
+      properties:
+        problem_dataset:
+          default: openai/gsm8k
+          title: Problem Dataset
+          type: string
+        problem_config:
+          anyOf:
+          - type: string
+          - type: 'null'
+          default: main
+          title: Problem Config
+        problem_split:
+          default: train
+          title: Problem Split
+          type: string
+        problem_column:
+          default: question
+          title: Problem Column
+          type: string
+        wiki_dataset:
+          default: Self-GRIT/wikitext-2-raw-v1-preprocessed
+          title: Wiki Dataset
+          type: string
+        wiki_split:
+          default: train
+          title: Wiki Split
+          type: string
+        pool:
+          default: 512
+          description: Leading problems and non-empty text rows the mixture draws
+            from.
+          minimum: 1
+          title: Pool
+          type: integer
+        total:
+          default: 512
+          description: Rows of the mixture.
+          minimum: 1
+          title: Total
+          type: integer
+        wiki_ratio:
+          default: 0.9
+          description: Fraction of plain-text rows.
+          maximum: 1.0
+          minimum: 0.0
+          title: Wiki Ratio
+          type: number
+        seed:
+          default: 42
+          description: Seed of the mixture draw and of the sampling of the traces.
+          title: Seed
+          type: integer
+        generation:
+          $ref: '#/$defs/GenerationConfig'
+        batch_size:
+          description: Rows per training batch.
+          minimum: 1
+          title: Batch Size
+          type: integer
+        max_length:
+          description: Tokens per row; rows are padded to this length.
+          minimum: 1
+          title: Max Length
+          type: integer
+        epochs:
+          description: Passes over the rows, each with a fresh shuffle.
+          minimum: 1
+          title: Epochs
+          type: integer
+        shuffle_seed:
+          default: 42
+          description: Seed of the batch-order generator shared by epochs.
+          title: Shuffle Seed
+          type: integer
+      required:
+      - batch_size
+      - max_length
+      - epochs
+      title: RacCalibration
+      type: object
+    TrainConfig:
+      additionalProperties: false
+      properties:
+        calibration:
+          $ref: '#/$defs/RacCalibration'
+        lora_r:
+          description: Rank of the LoRA update of the assignment logits.
+          minimum: 1
+          title: Lora R
+          type: integer
+        lr_centroids:
+          default: 0.0001
+          exclusiveMinimum: 0.0
+          title: Lr Centroids
+          type: number
+        lr_assignment:
+          default: 1.0e-05
+          exclusiveMinimum: 0.0
+          title: Lr Assignment
+          type: number
+        momentum:
+          default: 0.9
+          description: SGD momentum of both optimizers.
+          exclusiveMaximum: 1.0
+          minimum: 0.0
+          title: Momentum
+          type: number
+        clip:
+          default: 1.0
+          description: 'Gradient-norm clip: per matrix for the centroids, over all
+            assignment parameters of the model together for the LoRA factors.'
+          exclusiveMinimum: 0.0
+          title: Clip
+          type: number
+        start_temp:
+          default: 0.1
+          description: Softmax temperature at the first step.
+          exclusiveMinimum: 0.0
+          title: Start Temp
+          type: number
+        end_temp:
+          default: 0.001
+          description: Temperature at progress hard_ratio.
+          exclusiveMinimum: 0.0
+          title: End Temp
+          type: number
+        hard_ratio:
+          default: 0.98
+          description: Training progress from which assignments are hard.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Hard Ratio
+          type: number
+        loss1_weight:
+          default: 1.0
+          description: Weight of the loss on 4-bit inputs; the rest goes to the loss
+            on full-precision inputs.
+          maximum: 1.0
+          minimum: 0.0
+          title: Loss1 Weight
+          type: number
+        init_seed:
+          default: 42
+          description: Seed of the LoRA initialisation.
+          title: Init Seed
+          type: integer
+      required:
+      - calibration
+      - lora_r
+      title: TrainConfig
+      type: object
+  additionalProperties: false
+  properties:
+    rules:
+      description: Rules with a codebook format name the weights to cluster (per_channel);
+        all other rules are attached after the clustering, e.g. 4-bit activations
+        on the clustered linears' inputs.
+      items:
+        $ref: '#/$defs/QuantRule'
+      minItems: 1
+      title: Rules
+      type: array
+    act_bits:
+      default: 4
+      description: Bits of the per-token activation quantizer of the loss and of ACA.
+      maximum: 8
+      minimum: 2
+      title: Act Bits
+      type: integer
+    aca:
+      anyOf:
+      - $ref: '#/$defs/AcaConfig'
+      - type: 'null'
+      default: null
+      description: Adaptive cluster allocation; off when null.
+    train:
+      $ref: '#/$defs/TrainConfig'
+  required:
+  - rules
+  - train
+  title: CodeQuant2Config
+  type: object
+display:
+- rules
+default_preset: paper_a4w4_4b
+custom_presets: {}
+schema_hash: sha256:e6ef60c012bc40688a36b28276b2bede6fcd657bf22a25914c8bda716a4e3e3f
+builtin: true
+description: 'CodeQuant2: per-row k-means weight clustering with adaptive cluster
+  counts and learnable centroids and soft assignments on reasoning-aware calibration
+  (ported from the official code).'

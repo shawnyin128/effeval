@@ -7,7 +7,7 @@ paper: {title: "CodeQuant: Unified Clustering and Quantization for Enhanced Outl
 # model, the rotation applied in float32 in the hook). Deviations: init_seed is 42 as the official global seed, but the
 # official draws R's initial weight after model loading from a global RNG whose state is not reproduced, so the
 # trajectories are not bit-identical.
-quantizers: {}
+quantizers: {codequant: [paper_a4w4_deepseek]}
 values:
   preprocess.steps:
     value:

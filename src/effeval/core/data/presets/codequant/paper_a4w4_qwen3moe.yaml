@@ -1,0 +1,62 @@
+method: codequant
+name: paper_a4w4_qwen3moe
+description: CodeQuant A4W4 on Qwen3-30B-A3B with the released code's settings, 16 centroids per weight row on q/k/v, the router and the experts' gate/up, 4-bit per-token inputs on the same linears, ACCF on 512 WikiText-2 rows for 4 epochs. To be combined with the codequant_aos preprocess preset.
+paper: {title: "CodeQuant: Unified Clustering and Quantization for Enhanced Outlier Smoothing in Low-Precision Mixture-of-Experts", arxiv: "2604.10496", official_repo: "https://github.com/SAI-Lab-NYU/CodeQuant@c149bc94"}
+# Released-code behaviour, reproduced: k-means runs in float32 and its centroids are then cast to the model dtype; o_proj, down_proj, lm_head and the KV cache stay in BF16 and their inputs are not
+# quantized; centroids train in the model dtype (bf16 on this checkpoint) with plain SGD; the loss counts padding
+# tokens; no activation quantization during ACCF; no POG. The KL term has weight 1 as in the paper text and the code.
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.attn.q_proj.weight, linear.attn.k_proj.weight, linear.attn.v_proj.weight, moe.router.weight, linear.mlp.experts.gate_proj.weight, linear.mlp.experts.up_proj.weight]
+        layers: all
+        quant: {type: codebook, centroids: 16, granularity: per_channel, kmeans: {iters: 300, tol: 1.0e-6, seed: 42, compute_dtype: float32}}
+      - sites: [linear.attn.q_proj.input, linear.attn.k_proj.input, linear.attn.v_proj.input, moe.router.input, linear.mlp.experts.gate_proj.input, linear.mlp.experts.up_proj.input]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_token, zero_point: float}
+    source: "code: configs/qwen3.yaml#L15-L18 (weight_group_size -1, input_group_size -1, cluster_num 16, activation bits 4), script/cluster_fine_tune_script.py#L104-L106 (Qwen clustered linears), cluster/ClusterLinear.py#L29-L33 (the module is built in float32 and its weight copied in), #L56 and #L77-L91 (k-means per row on that float32 weight, before the cast to the model dtype at script/cluster_fine_tune_script.py#L210), utils/evaluation_utils.py#L93-L100 (activation sites q_proj|k_proj|v_proj|gate|gate_proj|up_proj)"
+  method.config.accf.calibration.dataset:
+    value: Self-GRIT/wikitext-2-raw-v1-preprocessed
+    source: "code: configs/qwen3.yaml#L11-L12"
+  method.config.accf.calibration.split:
+    value: train
+    source: "code: utils/dataset_utils.py#L6-L20 (train split, first max_sample rows)"
+  method.config.accf.calibration.n_samples:
+    value: 512
+    source: "code: configs/qwen3.yaml#L22 (cluster.max_sample 512)"
+  method.config.accf.calibration.batch_size:
+    value: 32
+    source: "code: configs/qwen3.yaml#L23 (cluster.batch_size 32)"
+  method.config.accf.calibration.max_length:
+    value: 256
+    source: "code: configs/qwen3.yaml#L24 (cluster.max_length 256)"
+  method.config.accf.calibration.epochs:
+    value: 4
+    source: "code: configs/qwen3.yaml#L25 (cluster.epochs 4)"
+  method.config.accf.calibration.shuffle_seed:
+    value: 42
+    source: "code: script/cluster_fine_tune_script.py#L322-L324 (DataLoader shuffle with generator seed 42)"
+  method.config.accf.calibration.chat_template:
+    value: true
+    source: "code: script/cluster_fine_tune_script.py#L329-L336 (each row is one user turn of the chat template)"
+  method.config.accf.calibration.enable_thinking:
+    value: false
+    source: "code: script/cluster_fine_tune_script.py#L335 (enable_thinking=False)"
+  method.config.accf.calibration.padding:
+    value: longest
+    source: "code: script/cluster_fine_tune_script.py#L339-L341 (padding=True)"
+  method.config.accf.lr:
+    value: 0.0001
+    source: "code: configs/qwen3.yaml#L26 (cluster.fine_tune_lr 1e-4)"
+  method.config.accf.kl_weight:
+    value: 1.0
+    source: "code: cluster/ClusterMoE.py#L55 (loss = loss_hidden + loss_router)"
+  method.config.accf.train_dtype:
+    value: model
+    source: "code: script/cluster_fine_tune_script.py#L210 (every ClusterLinear tensor is cast to the model dtype, so the centroid SGD runs in bf16 on these checkpoints)"
+  method.config.accf.route_gradients:
+    value: true
+    source: "code: cluster/ClusterMoE.py#L33-L66 (the Qwen path trains the router and every expert through the MoE loss)"
+  tasks:
+    value: [native/wikitext2_preprocessed_ppl, native/c4_ppl]
+    source: "paper §4 Table 1 (WikiText2 and C4 perplexity)"

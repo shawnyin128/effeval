@@ -1,0 +1,18 @@
+method: codequant
+name: kmeans_only
+description: CodeQuant's 16-centroid per-row k-means weights and 4-bit per-token inputs on Qwen3-30B-A3B without ACCF, the clustering-only ablation. To be combined with the codequant_aos preprocess preset.
+paper: {title: "CodeQuant: Unified Clustering and Quantization for Enhanced Outlier Smoothing in Low-Precision Mixture-of-Experts", arxiv: "2604.10496", official_repo: "https://github.com/SAI-Lab-NYU/CodeQuant@c149bc94"}
+# The same coverage and k-means (float32, as released) as paper_a4w4_qwen3moe; the centroids stay at their k-means values (no accf section).
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.attn.q_proj.weight, linear.attn.k_proj.weight, linear.attn.v_proj.weight, moe.router.weight, linear.mlp.experts.gate_proj.weight, linear.mlp.experts.up_proj.weight]
+        layers: all
+        quant: {type: codebook, centroids: 16, granularity: per_channel, kmeans: {iters: 300, tol: 1.0e-6, seed: 42, compute_dtype: float32}}
+      - sites: [linear.attn.q_proj.input, linear.attn.k_proj.input, linear.attn.v_proj.input, moe.router.input, linear.mlp.experts.gate_proj.input, linear.mlp.experts.up_proj.input]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_token, zero_point: float}
+    source: "code: configs/qwen3.yaml#L15-L18 (weight_group_size -1, input_group_size -1, cluster_num 16, activation bits 4), cluster/ClusterLinear.py#L29-L33 (the module is built in float32 and its weight copied in), #L56 and #L77-L91 (k-means per row on that float32 weight, before the cast to the model dtype at script/cluster_fine_tune_script.py#L210), utils/evaluation_utils.py#L93-L100 (activation sites)"
+  tasks:
+    value: [native/wikitext2_preprocessed_ppl, native/c4_ppl]
+    source: "paper §4 Table 1 (WikiText2 and C4 perplexity)"

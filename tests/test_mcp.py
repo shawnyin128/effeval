@@ -158,7 +158,14 @@ def test_describe_leaves_out_the_task_list_but_keeps_the_common_tasks_and_counts
     }
     assert brief["task_counts"]["lm_eval"] == 8 and brief["task_counts"]["evalscope"] == 3
     assert "lm_eval/mmlu_anatomy" not in json.dumps(brief)
-    titles = {"base": "Base", "rtn": "RTN", "gptq": "GPTQ", "paroquant": "ParoQuant"}
+    titles = {
+        "base": "Base",
+        "rtn": "RTN",
+        "gptq": "GPTQ",
+        "paroquant": "ParoQuant",
+        "codequant": "CodeQuant",
+        "codequant2": "CodeQuant2",
+    }
     assert {n: m["title"] for n, m in brief["methods"].items()} == titles
     assert {n: m["title"] for n, m in full["methods"].items()} == titles
     assert len(json.dumps(brief)) < len(json.dumps(full)) - len(json.dumps(full["tasks"])) // 2

@@ -1,0 +1,551 @@
+name: codequant
+title: CodeQuant
+version: '1'
+field: quantization
+runtime: hf
+entry: effeval.methods.quantization.codequant:codequant
+capabilities:
+  modes: []
+  handles:
+  - in_process
+uses:
+- quant_rules
+architectures: null
+config_schema:
+  $defs:
+    ACCFConfig:
+      additionalProperties: false
+      properties:
+        calibration:
+          $ref: '#/$defs/TextBatches'
+        lr:
+          description: Learning rate of the plain SGD step on the centroids.
+          exclusiveMinimum: 0
+          title: Lr
+          type: number
+        kl_weight:
+          default: 1.0
+          description: Weight of the router-logit KL term next to the MoE output MSE.
+          minimum: 0
+          title: Kl Weight
+          type: number
+        train_dtype:
+          default: model
+          description: 'Dtype of the centroids and of the re-assignment after the
+            k-means fit: the model''s own dtype as released, or float32 master centroids.'
+          enum:
+          - model
+          - float32
+          title: Train Dtype
+          type: string
+        route_gradients:
+          default: true
+          description: When false the router and the routed experts keep their k-means
+            centroids (the released DeepSeek path gives them no gradient); everything
+            else is still fine-tuned.
+          title: Route Gradients
+          type: boolean
+      required:
+      - calibration
+      - lr
+      title: ACCFConfig
+      type: object
+    ClipSearch:
+      additionalProperties: false
+      description: 'Per-unit search for the clipping ratio that minimises the weight
+        reconstruction error.
+
+
+        Candidates are p = 1 - i / grid for i in range(int(max_shrink * grid)); each
+        shrinks the unit''s range to
+
+        p of its min-max range, and the candidate with the smallest sum of |dequantized
+        - original|^norm wins
+
+        (the first one on ties). This is the `--w_clip` search of QuaRot (quant_utils.py
+        `WeightQuantizer`) and
+
+        of the GPTQ repository''s `mse` option.'
+      properties:
+        type:
+          const: mse
+          title: Type
+          type: string
+        grid:
+          default: 100
+          description: Resolution of the candidate ratios.
+          minimum: 1
+          title: Grid
+          type: integer
+        max_shrink:
+          default: 0.8
+          description: Largest shrink; candidates stop before 1 - max_shrink.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Max Shrink
+          type: number
+        norm:
+          default: 2.4
+          description: Exponent of the error summed over a unit.
+          exclusiveMinimum: 0.0
+          title: Norm
+          type: number
+      required:
+      - type
+      title: ClipSearch
+      type: object
+    CodebookFormat:
+      additionalProperties: false
+      description: 'Weights only: each unit (a row, or group_size consecutive values
+        of a row) keeps `centroids` values
+
+        fitted by k-means, and every element is replaced by the nearest centroid of
+        its unit.'
+      properties:
+        type:
+          const: codebook
+          title: Type
+          type: string
+        centroids:
+          description: Codebook entries per unit.
+          maximum: 256
+          minimum: 1
+          title: Centroids
+          type: integer
+        granularity:
+          description: 'Unit: per_channel one codebook per output row, per_group one
+            per group_size values.'
+          enum:
+          - per_channel
+          - per_group
+          title: Granularity
+          type: string
+        group_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Values per codebook when granularity is per_group.
+          title: Group Size
+        kmeans:
+          $ref: '#/$defs/KMeansConfig'
+      required:
+      - type
+      - centroids
+      - granularity
+      title: CodebookFormat
+      type: object
+    FpFormat:
+      additionalProperties: false
+      description: 'Low-precision float `eXmY` with a float32 scale `absmax / max_representable`
+        per granularity unit.
+
+
+        `special` selects which codes are reserved: `ieee` (inf/nan, e.g. e5m2), `fn`
+        (only the all-ones code is
+
+        NaN, e.g. e4m3fn), `none` (all codes finite, e.g. OCP FP6/FP4). `auto` picks
+        ieee for e5m2, fn for e4m3
+
+        and none otherwise.'
+      properties:
+        type:
+          const: fp
+          title: Type
+          type: string
+        encoding:
+          description: 'eXmY: exponent and mantissa bits, e.g. e4m3, e2m1.'
+          title: Encoding
+          type: string
+        special:
+          default: auto
+          description: 'Reserved codes: ieee inf/NaN, fn NaN only, none all finite.'
+          enum:
+          - auto
+          - ieee
+          - fn
+          - none
+          title: Special
+          type: string
+        granularity:
+          description: 'Scale unit: per_tensor one scale, per_channel one per output
+            row (weights), per_token one per vector (activations), per_group every
+            group_size values.'
+          enum:
+          - per_tensor
+          - per_channel
+          - per_token
+          - per_group
+          title: Granularity
+          type: string
+        group_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Values per scale when granularity is per_group.
+          title: Group Size
+        clip_ratio:
+          default: 1.0
+          description: Shrink the range to this fraction of absmax before rounding.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Clip Ratio
+          type: number
+        group_axis:
+          anyOf:
+          - enum:
+            - channel
+            - token
+            type: string
+          - type: 'null'
+          default: null
+          description: 'Axis a per_group scale unit spans. channel (default): group_size
+            consecutive features of one token. token: group_size consecutive tokens
+            of one feature. Sequence-shaped sites only.'
+          title: Group Axis
+        residual:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Keep the most recent residual tokens in full precision; only
+            older tokens are quantized. With group_axis token the quantized span is
+            cut to whole groups. Sequence-shaped sites only.
+          title: Residual
+      required:
+      - type
+      - encoding
+      - granularity
+      title: FpFormat
+      type: object
+    IntFormat:
+      additionalProperties: false
+      description: 'Uniform integer grid.
+
+
+        Asymmetric: min-max range that always contains zero, zero point `round(-min
+        / scale)`; this is exactly the
+
+        grid of the official GPTQ code (quant.py `Quantizer.find_params`) and the
+        paper''s RTN baseline.
+
+        Symmetric: `scale = absmax / (2^(bits-1) - 1)`, codes clamped to [-2^(bits-1),
+        2^(bits-1) - 1].'
+      properties:
+        type:
+          const: int
+          title: Type
+          type: string
+        bits:
+          description: Integer bit width.
+          maximum: 8
+          minimum: 2
+          title: Bits
+          type: integer
+        symmetric:
+          description: 'Symmetric: scale = absmax / (2^(bits-1) - 1). Asymmetric:
+            min-max grid, zero point.'
+          title: Symmetric
+          type: boolean
+        granularity:
+          description: 'Scale unit: per_tensor one scale, per_channel one per output
+            row (weights), per_token one per vector (activations), per_group every
+            group_size values.'
+          enum:
+          - per_tensor
+          - per_channel
+          - per_token
+          - per_group
+          title: Granularity
+          type: string
+        group_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Values per scale when granularity is per_group.
+          title: Group Size
+        clip_ratio:
+          default: 1.0
+          description: Shrink the range to this fraction of absmax before rounding.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Clip Ratio
+          type: number
+        clip_search:
+          anyOf:
+          - $ref: '#/$defs/ClipSearch'
+          - type: 'null'
+          default: null
+          description: 'Weights only: search each scale unit''s clipping ratio by
+            reconstruction error instead of using clip_ratio.'
+        zero_point:
+          anyOf:
+          - enum:
+            - integer
+            - float
+            type: string
+          - type: 'null'
+          default: null
+          description: 'Asymmetric only. integer (default): the range always contains
+            zero and the zero point is an integer. float: the grid spans exactly [min,
+            max] of the unit, offset by min.'
+          title: Zero Point
+        group_axis:
+          anyOf:
+          - enum:
+            - channel
+            - token
+            type: string
+          - type: 'null'
+          default: null
+          description: 'Axis a per_group scale unit spans. channel (default): group_size
+            consecutive features of one token. token: group_size consecutive tokens
+            of one feature. Sequence-shaped sites only.'
+          title: Group Axis
+        residual:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Keep the most recent residual tokens in full precision; only
+            older tokens are quantized. With group_axis token the quantized span is
+            cut to whole groups. Sequence-shaped sites only.
+          title: Residual
+      required:
+      - type
+      - bits
+      - symmetric
+      - granularity
+      title: IntFormat
+      type: object
+    KMeansConfig:
+      additionalProperties: false
+      description: Lloyd iterations of a codebook fit, started from k-means++ draws
+        of a generator seeded with `seed`.
+      properties:
+        iters:
+          default: 300
+          description: Maximum Lloyd iterations.
+          minimum: 0
+          title: Iters
+          type: integer
+        tol:
+          default: 1.0e-06
+          description: Stop once no centroid moves by more than this (absolute).
+          minimum: 0.0
+          title: Tol
+          type: number
+        seed:
+          default: 42
+          description: Seed of the k-means++ generator, created afresh per matrix.
+          title: Seed
+          type: integer
+        compute_dtype:
+          default: weight
+          description: 'Dtype the fit runs in: the weight''s own dtype or float32.'
+          enum:
+          - weight
+          - float32
+          title: Compute Dtype
+          type: string
+      title: KMeansConfig
+      type: object
+    MxFormat:
+      additionalProperties: false
+      description: 'Block-scaled format along the last dimension.
+
+
+        `scale: e8m0` follows the OCP Microscaling rule: shared scale `2^(floor(log2(block_absmax))
+        - emax_elem)`.
+
+        `scale: e4m3` follows the two-level NVFP4-style rule: a float32 tensor scale
+        plus an e4m3 block scale.'
+      properties:
+        type:
+          const: mx
+          title: Type
+          type: string
+        element:
+          description: Element format eXmY, e.g. e2m1 for MXFP4.
+          title: Element
+          type: string
+        block_size:
+          description: Values sharing one scale.
+          minimum: 2
+          title: Block Size
+          type: integer
+        scale:
+          description: 'e8m0: OCP power-of-two scale. e4m3: NVFP4-style two-level
+            scale.'
+          enum:
+          - e8m0
+          - e4m3
+          title: Scale
+          type: string
+      required:
+      - type
+      - element
+      - block_size
+      - scale
+      title: MxFormat
+      type: object
+    QuantRule:
+      additionalProperties: false
+      description: Quantize the tensors at `sites` within `layers`; later rules override
+        earlier ones at the same spot.
+      properties:
+        sites:
+          description: Where to quantize, e.g. linear.*.weight, linear.mlp.*.input,
+            attn.q.
+          items:
+            type: string
+          minItems: 1
+          title: Sites
+          type: array
+        layers:
+          anyOf:
+          - type: integer
+          - type: string
+          - items:
+              anyOf:
+              - type: integer
+              - type: string
+            type: array
+          default: all
+          description: 'Decoder layers: all, an index, a range 0-15, a list, or re:<regex>.'
+          title: Layers
+        quant:
+          discriminator:
+            mapping:
+              codebook: '#/$defs/CodebookFormat'
+              fp: '#/$defs/FpFormat'
+              int: '#/$defs/IntFormat'
+              mx: '#/$defs/MxFormat'
+            propertyName: type
+          oneOf:
+          - $ref: '#/$defs/IntFormat'
+          - $ref: '#/$defs/FpFormat'
+          - $ref: '#/$defs/MxFormat'
+          - $ref: '#/$defs/CodebookFormat'
+          title: Quant
+      required:
+      - sites
+      - quant
+      title: QuantRule
+      type: object
+    TextBatches:
+      additionalProperties: false
+      description: 'Calibration texts of a Hugging Face dataset, tokenized as shuffled
+        batches of whole rows.
+
+
+        The first n_samples rows of `split` are shuffled each epoch by a `torch.utils.data.DataLoader`
+        whose
+
+        generator is seeded with `shuffle_seed` (the order of the official CodeQuant
+        loaders), cut into batches
+
+        of batch_size rows (the last may be smaller), optionally wrapped in the chat
+        template as one user turn,
+
+        and tokenized with truncation to max_length tokens.'
+      properties:
+        dataset:
+          description: Hugging Face dataset id with a `text` column.
+          title: Dataset
+          type: string
+        split:
+          default: train
+          description: Dataset split.
+          title: Split
+          type: string
+        n_samples:
+          description: Leading rows used.
+          minimum: 1
+          title: N Samples
+          type: integer
+        batch_size:
+          description: Rows per batch.
+          minimum: 1
+          title: Batch Size
+          type: integer
+        max_length:
+          description: Tokens kept per row.
+          minimum: 1
+          title: Max Length
+          type: integer
+        epochs:
+          description: Passes over the rows, each with a fresh shuffle.
+          minimum: 1
+          title: Epochs
+          type: integer
+        shuffle_seed:
+          default: 42
+          description: Seed of the shuffling generator, shared by all epochs.
+          title: Shuffle Seed
+          type: integer
+        chat_template:
+          default: true
+          description: Wrap each row as a user turn and add the generation prompt.
+          title: Chat Template
+          type: boolean
+        enable_thinking:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          default: null
+          description: Passed to the chat template when set (Qwen3); omitted when
+            null.
+          title: Enable Thinking
+        padding:
+          default: longest
+          description: Pad each batch to its longest row or to max_length.
+          enum:
+          - longest
+          - max_length
+          title: Padding
+          type: string
+      required:
+      - dataset
+      - n_samples
+      - batch_size
+      - max_length
+      - epochs
+      title: TextBatches
+      type: object
+  additionalProperties: false
+  properties:
+    rules:
+      description: Weight rules (codebook format) are clustered; rules on other sites
+        are attached after.
+      items:
+        $ref: '#/$defs/QuantRule'
+      minItems: 1
+      title: Rules
+      type: array
+    accf:
+      anyOf:
+      - $ref: '#/$defs/ACCFConfig'
+      - type: 'null'
+      default: null
+      description: Centroid fine-tuning; null keeps the k-means centroids.
+  required:
+  - rules
+  title: CodeQuantConfig
+  type: object
+display:
+- rules
+- accf
+default_preset: paper_a4w4_qwen3moe
+custom_presets: {}
+schema_hash: sha256:28c3d0ba119520e87d0ee1ac695f278cfd69413abc4ccf6588af3550342cda59
+builtin: true
+description: Per-row 16-centroid k-means weights with ACCF centroid fine-tuning (ported
+  from the released CodeQuant code).

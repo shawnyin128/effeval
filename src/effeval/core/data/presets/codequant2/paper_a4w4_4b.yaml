@@ -1,0 +1,63 @@
+method: codequant2
+name: paper_a4w4_4b
+description: CodeQuant2's released settings for Qwen3-4B-Thinking-2507 (A4W4 with 16 centroids per row on q/k/v/gate/up, adaptive cluster counts 8/16/32, learnable centroids and LoRA soft assignments on reasoning-aware calibration); pair it with the codequant2_rs preprocess preset.
+paper: {title: "CodeQuant2: Enhanced Outlier Mitigation and Adaptive Clustering for Low-Precision LRMs", arxiv: "2611.09868", official_repo: "https://github.com/SAI-Lab-NYU/CodeQuant2@eaf112cb"}
+# Deviations from the released code, all intended: micro_batch_size splits each ACA batch into chunks of 2 rows so
+# the backward pass through the whole model fits one 48 GB GPU (the sum over rows is unchanged); k-means draws its
+# k-means++ starts from a generator seeded per matrix (official: the global RNG) and keeps an emptied cluster at
+# centroid 0 (official: at its previous value); the LoRA factors and batch orders come from seeded generators
+# (official: the global RNG); calibration rows of the training stage are the reasoning-aware mixture with
+# traces sampled by the HF generate of the rotated model (official: traces of the unrotated model sampled by vLLM).
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.attn.q_proj.weight, linear.attn.k_proj.weight, linear.attn.v_proj.weight, linear.mlp.gate_proj.weight, linear.mlp.up_proj.weight]
+        layers: all
+        quant: {type: codebook, centroids: 16, granularity: per_channel, kmeans: {iters: 300, tol: 1.0e-6, seed: 42, compute_dtype: float32}}
+      - sites: [linear.attn.q_proj.input, linear.attn.k_proj.input, linear.attn.v_proj.input, linear.mlp.gate_proj.input, linear.mlp.up_proj.input]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: false, granularity: per_token, zero_point: float}
+    source: "code: config/qwen3_4b_thinking_a4w4.yaml#L34-L39 (target_layers q/k/v/gate/up), #L23 (cluster_num 16), cluster/clustering.py#L26-L99 (300 float32 Lloyd iterations, tol 1e-6), script/act_quant_plugin.py#L39-L41 (4-bit per-token asymmetric min-max on the inputs of q/k/v/gate/up)"
+  method.config.act_bits:
+    value: 4
+    source: "code: config/qwen3_4b_thinking_a4w4.yaml#L22 (bits.activation)"
+  method.config.aca:
+    value:
+      choices: [8, 16, 32]
+      calibration: {dataset: Self-GRIT/wikitext-2-raw-v1-preprocessed, split: train, n_samples: 1024, dataset_seed: 42, batch_size: 16, max_length: 512, shuffle_seed: 42, enable_thinking: false}
+      layers_per_group: 10
+      change_ratio: 0.15
+      micro_batch_size: 2
+    source: "code: script/adap_clus.py#L32 (choices), #L37-L40 (calibration 1024 rows, 1 epoch, 10 layers per group), utils/dataset_utils.py#L4-L34 (shuffle seed 42), script/adap_clus.py#L70-L71,#L84-L93 (batch 16, DataLoader seed 42), utils/adaptive_cluster_utils.py#L42-L59 (chat template without thinking, padding max_length), #L213-L220 (change_ratio 0.15); config/qwen3_4b_thinking_a4w4.yaml#L19-L20 (max_length 512)"
+  method.config.train:
+    value:
+      calibration:
+        problem_dataset: openai/gsm8k
+        problem_config: main
+        problem_split: train
+        problem_column: question
+        wiki_dataset: Self-GRIT/wikitext-2-raw-v1-preprocessed
+        wiki_split: train
+        pool: 512
+        total: 512
+        wiki_ratio: 0.9
+        seed: 42
+        generation: {max_new_tokens: 256, temperature: 0.6, top_p: 0.95, top_k: 20, batch_size: 16}
+        batch_size: 16
+        max_length: 512
+        epochs: 4
+        shuffle_seed: 42
+      lora_r: 16
+      lr_centroids: 1.0e-4
+      lr_assignment: 1.0e-5
+      momentum: 0.9
+      clip: 1.0
+      start_temp: 0.1
+      end_temp: 0.001
+      hard_ratio: 0.98
+      loss1_weight: 1.0
+      init_seed: 42
+    source: "code: script/finetune_local.py#L218-L222 (batch 16, epochs 4, size 512, max_length 512 defaults), #L41-L68 (mixture of 512 generated rows and wikitext rows), config/qwen3_4b_thinking_a4w4.yaml#L25-L42 (wiki_ratio 0.9, temperatures, hard_ratio, lr_c, loss1_weight, a_lora_r 16), #L17-L18 (256 new tokens), script/finetune_local.py#L259-L262 (assignment SGD lr 1e-5 momentum 0.9), #L189 (global clip 1.0), cluster/ClusterLinear.py#L119 (centroid SGD momentum 0.9), #L210 (clip 1.0), utils/vllm_generation_utils.py#L20-L30 (T 0.6, top_p 0.95, top_k 20), utils/reasoning_data_utils.py#L74-L106 (draw with random.Random(42))"
+  tasks:
+    value: [native/wikitext2_preprocessed_ppl, native/c4_ppl]
+    source: "paper §Table 1 (WikiText2 and C4 perplexity); the reasoning tasks are chosen per table"
