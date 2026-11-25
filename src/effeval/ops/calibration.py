@@ -78,13 +78,25 @@ def text_batches(cfg: TextBatches, tokenizer) -> list[list[BatchEncoding]]:
     `DataLoader(shuffle=True)` whose generator is seeded once with `shuffle_seed`, so epochs differ and the
     sequence of batches equals the official CodeQuant loaders. A row becomes one user turn of the chat
     template when `chat_template` is set; each batch is tokenized with truncation to `max_length`, `padding`.
+    `drop_empty` drops blank rows first; `pre_shuffle_seed` reorders the selected rows before the loader;
+    `skip_epochs` passes over the loader without tokenizing before the first returned epoch.
     """
     rows = load_dataset(cfg.dataset, split=cfg.split)
-    texts = rows.select(range(min(cfg.n_samples, len(rows))))["text"]
+    if cfg.drop_empty:
+        texts = [text for text in rows["text"] if text.strip()][: cfg.n_samples]
+    else:
+        texts = rows.select(range(min(cfg.n_samples, len(rows))))["text"]
+    if cfg.pre_shuffle_seed is not None:
+        rng = random.Random(cfg.pre_shuffle_seed)
+        texts = [texts[i] for i in rng.sample(range(len(texts)), len(texts))]
+        rng.shuffle(texts)
     generator = torch.Generator()
     generator.manual_seed(cfg.shuffle_seed)
     loader = DataLoader(texts, batch_size=cfg.batch_size, shuffle=True, generator=generator, collate_fn=list)
     template_options = {} if cfg.enable_thinking is None else {"enable_thinking": cfg.enable_thinking}
+    for _ in range(cfg.skip_epochs):
+        for _ in loader:
+            pass
     epochs: list[list[BatchEncoding]] = []
     for _ in range(cfg.epochs):
         batches = []

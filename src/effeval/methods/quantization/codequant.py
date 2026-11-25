@@ -51,6 +51,11 @@ class ACCFConfig(StrictModel):
         description="Dtype of the centroids and of the re-assignment after the k-means fit: the model's own "
         "dtype as released, or float32 master centroids.",
     )
+    train_dense_ffn: bool = Field(
+        default=False,
+        description="Also fine-tune clustered linears that are neither attention nor inside a MoE block "
+        "(dense MLP gate/up) with the local output MSE; the released code keeps them at k-means values.",
+    )
     route_gradients: bool = Field(
         default=True,
         description="When false the router and the routed experts keep their k-means centroids (the released "
@@ -138,7 +143,7 @@ class _Cluster:
         gradient = self.parameter.grad
         if gradient is None:
             return
-        gradient_units, _ = codebook.to_units(gradient, self.group_size)
+        gradient_units, _ = codebook.to_units(gradient.to(self.centroids.dtype), self.group_size)
         mean = codebook.scatter_mean_grad(gradient_units, self.mask, self.assignments, self.fmt.centroids)
         self.centroids.grad = mean.to(self.centroids.dtype)
         self.optimizer.step()
@@ -164,6 +169,10 @@ class _Cluster:
         }
 
 
+ROUTER_CLASSES = ("Qwen3MoeTopKRouter", "DeepseekV2TopkRouter")
+"""Router classes whose forward returns `(raw logits, weights, indices)` (transformers 5.23)."""
+
+
 class _LayerTrainer:
     """Hooks and loop of ACCF for the clustered weights of one decoder layer."""
 
@@ -184,6 +193,11 @@ class _LayerTrainer:
             self.handles.append(cluster.module.register_forward_hook(self._local_hook(cluster)))
         if in_block:
             router = layer.get_submodule(moe.router)
+            if type(router).__name__ not in ROUTER_CLASSES:
+                raise ValueError(
+                    f"router class {type(router).__name__} is not known to return raw logits first; "
+                    f"verified: {ROUTER_CLASSES}"
+                )
             self.handles.append(router.register_forward_hook(self._router_hook))
             self.handles.append(
                 layer.get_submodule(moe.block).register_forward_hook(self._block_hook(in_block))
@@ -236,23 +250,34 @@ class _LayerTrainer:
             cluster.module.weight = cluster.original if mode == "fp" else cluster.parameter
 
     def run(
-        self, fp_in: list[torch.Tensor], q_in: list[torch.Tensor], kwargs: list[dict]
+        self,
+        fp_in: list[torch.Tensor],
+        q_in: list[torch.Tensor],
+        kwargs: list[dict],
+        step_order: list[int],
     ) -> tuple[list[torch.Tensor], list[torch.Tensor]]:
-        """Full-precision and quantized-path outputs of the layer for every step; fine-tunes the clusters."""
+        """Full-precision (per unique batch) and quantized-path (per step) outputs; fine-tunes the clusters.
+
+        Full-precision targets of a batch are computed at its first step and reused by later steps.
+        """
         device = next(self.layer.parameters()).device
         frozen = [p for p in self.layer.parameters() if p.requires_grad]
         for p in frozen:
             p.requires_grad_(False)
-        fp_out, q_out = [], []
+        fp_out: list[torch.Tensor | None] = [None] * len(fp_in)
+        q_out = []
+        cache: dict[int, dict] = {}
         try:
-            for step in range(len(q_in)):
+            for step, batch in enumerate(step_order):
                 step_kwargs = move_to(kwargs[step], device)
-                self.mode = "fp"
-                self._use("fp")
-                with torch.no_grad():
-                    fp_out.append(
-                        move_to(_layer_output(self.layer, fp_in[step].to(device), step_kwargs), "cpu")
-                    )
+                if batch not in cache:
+                    self.mode = "fp"
+                    self._use("fp")
+                    with torch.no_grad():
+                        out = _layer_output(self.layer, fp_in[batch].to(device), step_kwargs)
+                    fp_out[batch] = move_to(out, "cpu")
+                    cache[batch] = move_to(self.targets, "cpu")
+                self.targets = move_to(cache[batch], device)
                 self.mode = "q"
                 self._use("q")
                 with torch.enable_grad():
@@ -261,13 +286,13 @@ class _LayerTrainer:
                 for cluster in self.clusters:
                     if cluster.trainable:
                         cluster.update()
-                self.targets.clear()
+                self.targets = {}
         finally:
             for handle in self.handles:
                 handle.remove()
             for p in frozen:
                 p.requires_grad_(True)
-            self.targets.clear()
+            self.targets = {}
         return fp_out, q_out
 
 
@@ -306,7 +331,11 @@ def _layer_clusters(model: nn.Module, index: int, entries: list[Entry], accf: AC
         routed.add(id(layer.get_submodule(moe.router)))
     for cluster in clusters:
         cluster.in_moe = id(cluster.module) in in_block
-        cluster.start_training(accf.lr, accf.route_gradients or id(cluster.module) not in routed)
+        if cluster.in_moe:
+            trainable = accf.route_gradients or id(cluster.module) not in routed
+        else:
+            trainable = cluster.site.startswith("linear.attn.") or accf.train_dense_ffn
+        cluster.start_training(accf.lr, trainable)
     return clusters
 
 
@@ -357,6 +386,20 @@ def _report(layers: dict[int, dict], total_parameters: int) -> dict:
     }
 
 
+def _unique_batches(batches: list[dict]) -> tuple[list[dict], list[int]]:
+    """The distinct batches (by content) in first-seen order and, per step, the index of its batch."""
+    unique: list[dict] = []
+    index: dict[tuple, int] = {}
+    order = []
+    for batch in batches:
+        key = tuple((name, tuple(t.shape), t.cpu().numpy().tobytes()) for name, t in sorted(batch.items()))
+        if key not in index:
+            index[key] = len(unique)
+            unique.append(batch)
+        order.append(index[key])
+    return unique, order
+
+
 @torch.no_grad()
 def quantize_model(
     model: nn.Module, batches: list[dict] | None, cfg: CodeQuantConfig, sink: Sink | None = None
@@ -379,17 +422,18 @@ def quantize_model(
             raise ValueError("ACCF needs calibration batches")
         moe = sites.architecture(model).moe
         last = max(entries)
+        unique, order = _unique_batches(batches)
 
         def layer_fn(index, layer, fp_in, q_in, kwargs):
             if index > last:
                 return fp_in, q_in
             clusters = _layer_clusters(model, index, entries.get(index, []), cfg.accf)
-            fp_out, q_out = _LayerTrainer(layer, clusters, cfg.accf, moe).run(fp_in, q_in, kwargs)
+            fp_out, q_out = _LayerTrainer(layer, clusters, cfg.accf, moe).run(fp_in, q_in, kwargs, order)
             if clusters:
                 summaries[index] = _finish_layer(clusters, sink)
             return fp_out, q_out
 
-        run_streams(model, batches, list(range(len(batches))), layer_fn)
+        run_streams(model, unique, order, layer_fn)
     report = _report(summaries, total_parameters)
     logger.info(
         "codequant: %s", json.dumps({k: v for k, v in report.items() if k != "effective_bits_by_site"})

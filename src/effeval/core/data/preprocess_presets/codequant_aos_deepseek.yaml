@@ -6,7 +6,7 @@ paper: {title: "CodeQuant: Unified Clustering and Quantization for Enhanced Outl
 # padding tokens included; the loss is taken on the model with the gains folded, in the model dtype (official: the same
 # model, the rotation applied in float32 in the hook). Deviations: init_seed is 42 as the official global seed, but the
 # official draws R's initial weight after model loading from a global RNG whose state is not reproduced, so the
-# trajectories are not bit-identical.
+# trajectories are not bit-identical. micro_batch_size 4 only bounds memory (equal gradients up to rounding).
 quantizers: {codequant: [paper_a4w4_deepseek]}
 values:
   preprocess.steps:
@@ -23,6 +23,7 @@ values:
               optimizer: adam
               lr: 0.0001
               init_seed: 42
+              micro_batch_size: 4
               calibration:
                 dataset: Self-GRIT/wikitext-2-raw-v1-preprocessed
                 split: train

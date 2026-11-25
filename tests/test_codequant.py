@@ -140,7 +140,8 @@ class RefLinear(nn.Module):
                 self.cluster_weight.grad.zero_()
             F.mse_loss(out, self.calibration_output).backward()
             return out.detach()
-        return out
+        # "frozen": an official ffn linear outside a ClusterMoE, forward with W_c and no loss
+        return out.detach() if self.kind == "frozen" else out
 
     def fine_tune(self):
         if self.cluster_weight.grad is None:
@@ -191,7 +192,7 @@ class RefMoE(nn.Module):
         return out.detach()
 
 
-def reference_run(model: nn.Module, batches: list[dict], lr: float = LR):
+def reference_run(model: nn.Module, batches: list[dict], lr: float = LR, dense_kind: str = "frozen"):
     """Whole-model passes per step, centroids stepped after each; returns ({key: RefLinear}, model)."""
     for p in model.parameters():
         p.requires_grad_(False)
@@ -219,7 +220,7 @@ def reference_run(model: nn.Module, batches: list[dict], lr: float = LR):
         else:
             for name in ("gate_proj", "up_proj"):
                 key = (f"linear.mlp.{name}.weight", index)
-                ref = linears[key] = RefLinear(getattr(mlp, name), "sa", lr, key)
+                ref = linears[key] = RefLinear(getattr(mlp, name), dense_kind, lr, key)
                 setattr(mlp, name, ref)
     modules = [m for m in model.modules() if isinstance(m, (RefLinear, RefMoE))]
     for batch in batches:
@@ -291,14 +292,83 @@ def test_the_first_centroid_step_scales_linearly_with_the_learning_rate():
     assert torch.allclose((books_half[key][0] - start) * 2, full_step, atol=1e-5)
 
 
-def test_dense_model_trains_every_clustered_linear_with_the_local_loss():
+DENSE_SITES = [*ATTENTION_SITES, "linear.mlp.gate_proj.weight", "linear.mlp.up_proj.weight"]
+
+
+def test_dense_mlp_linears_stay_at_k_means_as_in_the_released_code():
+    """The official code trains attention linears only; an ffn linear outside a ClusterMoE has no loss."""
     batches = make_batches(vocab=97)
-    sites = [*ATTENTION_SITES, "linear.mlp.gate_proj.weight", "linear.mlp.up_proj.weight"]
+    model, base = (
+        build_tiny_qwen3(head_dim=16, tie=False, seed=3),
+        build_tiny_qwen3(head_dim=16, tie=False, seed=3),
+    )
+    reference = copy.deepcopy(model)
+    _, books = run(model, batches, make_config(sites=DENSE_SITES))
+    _, initial = run(base, None, make_config(sites=DENSE_SITES, accf=False))
+    assert_same_state(books, model, reference_run(reference, batches))
+    for key in books:
+        assert torch.equal(books[key][0], initial[key][0]) == (key[0] not in ATTENTION_SITES), key
+
+
+def test_train_dense_ffn_switch_gives_the_dense_mlp_the_local_loss():
+    batches = make_batches(vocab=97)
     model = build_tiny_qwen3(head_dim=16, tie=False, seed=3)
     reference = copy.deepcopy(model)
-    _, books = run(model, batches, make_config(sites=sites))
-    linears = reference_run(reference, batches)
-    assert_same_state(books, model, linears)
+    cfg = make_config(sites=DENSE_SITES)
+    cfg.accf.train_dense_ffn = True
+    _, books = run(model, batches, cfg)
+    assert_same_state(books, model, reference_run(reference, batches, dense_kind="sa"))
+
+
+def test_float32_mode_sums_member_gradients_in_float32():
+    """A cluster with more than 256 members: bf16 counts and sums would saturate."""
+    generator = torch.Generator().manual_seed(0)
+    linear = nn.Linear(1024, 4, bias=False).to(torch.bfloat16)
+    fmt = CodebookFormat(type="codebook", centroids=2, granularity="per_channel")
+    cluster = codequant._Cluster(("linear.attn.q_proj.weight", 0), linear, fmt, "float32")
+    cluster.start_training(lr=1.0, trainable=True)
+    assignments = cluster.assignments.long()
+    assert min((assignments == k).sum(dim=1).min().item() for k in range(2)) > 256
+    gradient = (0.5 + torch.rand(4, 1024, generator=generator)).to(torch.bfloat16)
+    cluster.parameter.grad = gradient.clone()
+    cluster.stats = (torch.ones(1024), torch.ones(1024))
+    before = cluster.centroids.detach().clone()
+    cluster.update()
+    expected = torch.stack(
+        [
+            (gradient.double() * (assignments == k)).sum(dim=1) / (assignments == k).sum(dim=1)
+            for k in range(2)
+        ],
+        dim=1,
+    )
+    assert cluster.centroids.dtype == torch.float32
+    assert torch.allclose((before - cluster.centroids.detach()).double(), expected, rtol=1e-5)
+
+
+def test_repeated_batches_are_run_once_and_give_the_same_result(monkeypatch):
+    unique = make_batches(steps=2)
+    batches = [unique[0], unique[1], unique[0], unique[1]]
+    seen = {}
+    original = codequant.run_streams
+
+    def spy(model, given, order, layer_fn):
+        seen["count"], seen["order"] = len(given), list(order)
+        return original(model, given, order, layer_fn)
+
+    monkeypatch.setattr(codequant, "run_streams", spy)
+    model = moe_model()
+    reference = copy.deepcopy(model)
+    _, books = run(model, batches, make_config())
+    assert seen == {"count": 2, "order": [0, 1, 0, 1]}
+    assert_same_state(books, model, reference_run(reference, batches))
+
+
+def test_an_unknown_router_class_fails_fast():
+    model = moe_model()
+    router = model.model.layers[0].mlp.gate
+    router.__class__ = type("OtherRouter", (type(router),), {})
+    with pytest.raises(ValueError, match="router class OtherRouter"):
+        run(model, make_batches(steps=1), make_config())
 
 
 def test_route_gradients_false_keeps_k_means_for_the_router_and_experts_only():
@@ -446,7 +516,7 @@ class FirstOutput(nn.Module):
         return self.inner(x)[0]
 
 
-def official_run(model: nn.Module, batches: list[dict], lr: float = LR):
+def official_run(model: nn.Module, batches: list[dict], lr: float = LR, stale: list | None = None):
     """The loop of the official `clustering` on `model` with the official ClusterLinear and ClusterMoE."""
     linear_module = _official("cq1", "cluster/ClusterLinear.py")
     moe_module = _official("cq1", "cluster/ClusterMoE.py")
@@ -489,6 +559,14 @@ def official_run(model: nn.Module, batches: list[dict], lr: float = LR):
         for m in [*clusters.values(), *wrapped]:
             m.set_calibration_mode(False)
         model(**batch, use_cache=False)
+        if stale is not None:
+            stale.append(
+                sum(
+                    1
+                    for c in clusters.values()
+                    if c.cluster_weight.grad is not None and not c.cluster_weight.grad.any()
+                )
+            )
         for lin in clusters.values():
             lin.fine_tune_centroids()
     return clusters
@@ -537,3 +615,26 @@ def test_bfloat16_model_trains_in_the_model_dtype_or_with_float32_master_centroi
     assert master.model.layers[0].self_attn.q_proj.weight.dtype == torch.bfloat16
     assert not all(torch.equal(books[k][0].float(), books_master[k][0]) for k in books)
     assert all(torch.isfinite(c).all() for c, _ in books_master.values())
+
+
+def test_an_expert_without_tokens_in_a_step_matches_the_official_zero_gradient_step():
+    """The official code steps and re-assigns such an expert with a zero gradient and its stale input."""
+    generator = torch.Generator().manual_seed(11)
+    batches = [
+        {
+            "input_ids": torch.randint(0, 128, (1, 3), generator=generator),
+            "attention_mask": torch.ones(1, 3, dtype=torch.long),
+        }
+        for _ in range(8)
+    ]
+    model = moe_model()
+    reference = copy.deepcopy(model)
+    _, books = run(model, batches, make_config())
+    stale: list[int] = []
+    clusters = official_run(reference, batches, stale=stale)
+    assert max(stale) > 0, "no expert was hit and then skipped"
+    for key, official in clusters.items():
+        centroids, assignments = books[key]
+        assert torch.equal(centroids, official.centroids.detach()), f"centroids {key}"
+        assert torch.equal(assignments, official.assignments), f"assignments {key}"
+        assert torch.equal(weight_of(model, key).data, official.cluster_weight.detach()), f"weight {key}"

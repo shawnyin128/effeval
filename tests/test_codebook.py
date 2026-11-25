@@ -279,6 +279,15 @@ def test_kmeans_equals_official_on_cuda_bfloat16(official_cluster, deterministic
     _compare_kmeans(official_cluster, _weight(32, 200, torch.bfloat16, "cuda"), 64, 4)
 
 
+@pytest.mark.gpu
+def test_kmeans_equals_official_on_cuda_float32(official_cluster, deterministic_scatter):
+    """The CodeQuant presets cluster in float32 on the model's device."""
+    if not torch.cuda.is_available():
+        pytest.skip("needs a CUDA device")
+    _compare_kmeans(official_cluster, _weight(64, 256, torch.float32, "cuda"), None, 16)
+    _compare_kmeans(official_cluster, _weight(32, 200, torch.float32, "cuda"), 64, 4)
+
+
 @pytest.mark.parametrize("group_size", [None, 24])
 def test_recluster_equals_official(official_cluster, group_size):
     rows, columns = 8, 96

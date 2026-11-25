@@ -2,7 +2,9 @@ import copy
 import os
 import re
 import sys
+from functools import partial
 from types import SimpleNamespace
+from typing import ClassVar
 
 import pytest
 from pydantic import ValidationError
@@ -518,3 +520,186 @@ def test_the_initial_values_come_from_the_seeds(model, batches):
     names += ["norm.post_attention_layernorm.out@0", "norm.post_attention_layernorm.out@1"]
     for name, init in zip(names, expected, strict=True):
         assert torch.allclose(scales[name], init, atol=1e-6), name
+
+
+# micro-batching
+
+
+class RecordingAdam(torch.optim.Adam):
+    """Adam that keeps the gradients it is about to apply."""
+
+    seen: ClassVar[list[list[torch.Tensor]]] = []
+
+    def step(self, *args, **kwargs):
+        RecordingAdam.seen.append([p.grad.detach().clone() for g in self.param_groups for p in g["params"]])
+        return super().step(*args, **kwargs)
+
+
+def uneven_batches() -> list[transformers.BatchEncoding]:
+    generator = torch.Generator().manual_seed(5)
+    ids = torch.randint(1, 97, (3, 8), generator=generator)
+    mask = torch.ones(3, 8, dtype=torch.long)
+    mask[1, :2] = 0
+    mask[2, :5] = 0
+    return [transformers.BatchEncoding({"input_ids": ids, "attention_mask": mask})]
+
+
+def recorded_gradients(monkeypatch, run):
+    """(gradients Adam applied in the first step, result of `run()`)."""
+    monkeypatch.setattr(torch.optim, "Adam", RecordingAdam)
+    RecordingAdam.seen = []
+    result = run()
+    return RecordingAdam.seen[0], result
+
+
+def scaling_history(*args):
+    return trained.train_scaling(*args)[1]
+
+
+def grad_rel_diff(a: list[torch.Tensor], b: list[torch.Tensor]) -> float:
+    num = sum(float((x - y).norm()) ** 2 for x, y in zip(a, b, strict=True)) ** 0.5
+    return num / sum(float(y.norm()) ** 2 for y in b) ** 0.5
+
+
+@pytest.mark.parametrize("micro", [1, 2])
+def test_micro_batched_rotation_gradient_equals_the_full_batch_gradient(model, monkeypatch, micro):
+    batches = uneven_batches()
+    results = {}
+    for size in (None, micro):
+        twin = copy.deepcopy(model).double()
+        rotation = cayley_rotation(HIDDEN, 7)
+        norms = list(norm_modules(twin).values())
+        results[size] = recorded_gradients(
+            monkeypatch, partial(trained.train_rotation, twin, norms, batches, rotation, BITS, LR, size)
+        )
+    assert results[None][0][0].abs().sum() > 0
+    assert grad_rel_diff(results[micro][0], results[None][0]) < 1e-6
+    assert rel_diff(results[micro][1], results[None][1]) < 1e-6
+
+
+@pytest.mark.parametrize("micro", [1, 2])
+def test_micro_batched_scaling_gradient_equals_the_full_batch_gradient(model, monkeypatch, micro):
+    batches = uneven_batches()
+    results = {}
+    for size in (None, micro):
+        twin = copy.deepcopy(model).double()
+        norms = norm_modules(twin)
+        generator = torch.Generator().manual_seed(3)
+        init = {name: 1 + 0.01 * torch.randn(HIDDEN, generator=generator) for name in norms}
+        results[size] = recorded_gradients(
+            monkeypatch, partial(scaling_history, twin, norms, batches, init, BITS, LR, size)
+        )
+    assert results[None][0][0].abs().sum() > 0
+    assert grad_rel_diff(results[micro][0], results[None][0]) < 1e-6
+    assert rel_diff(results[micro][1], results[None][1]) < 1e-6
+
+
+def test_micro_batch_weights_are_row_fractions():
+    batch = transformers.BatchEncoding({"input_ids": torch.zeros(5, 3), "attention_mask": torch.ones(5, 3)})
+    chunks = trained.micro_batches(batch, 2)
+    assert [(c["input_ids"].shape[0], w) for c, w in chunks] == [(2, 0.4), (2, 0.4), (1, 0.2)]
+    assert [w for _c, w in trained.micro_batches(batch, None)] == [1.0]
+    assert sum(w for _c, w in trained.micro_batches(batch, 7)) == 1.0
+
+
+def test_micro_batch_size_is_part_of_the_artifact_key_and_runs_through_the_engine(model, batches):
+    base = logits_of(model)
+    twin = copy.deepcopy(model)
+    cache = ArtifactCache()
+    engine.apply(model, preprocess_of(rotation_step(micro_batch_size=1)), make_context(model, cache))
+    engine.apply(twin, preprocess_of(rotation_step()), make_context(twin, cache))
+    assert cache.computed == 2
+    assert torch.allclose(logits_of(model), base, atol=1e-4)
+
+
+def test_the_presets_bound_memory_and_continue_the_shuffle_stream():
+    presets = builtin_preprocess_presets()
+    for name in ("codequant_aos", "codequant_aos_deepseek", "codequant2_rs"):
+        for step in presets[name].values["preprocess.steps"].value:
+            assert all(e["source"]["micro_batch_size"] == 4 for e in step["entries"])
+    two = presets["codequant2_rs"].values["preprocess.steps"].value
+    rotation_cfg = two[0]["entries"][0]["source"]["calibration"]
+    scaling_cfg = two[1]["entries"][0]["source"]["calibration"]
+    assert scaling_cfg["skip_epochs"] == rotation_cfg["epochs"] == 8
+    assert scaling_cfg["shuffle_seed"] == rotation_cfg["shuffle_seed"]
+    assert rotation_cfg["drop_empty"] is True and rotation_cfg.get("skip_epochs", 0) == 0
+    assert rotation_cfg["pre_shuffle_seed"] == scaling_cfg["pre_shuffle_seed"] == 42
+
+
+# the norms and folds of the official pipeline
+
+
+def official_style_moe(model):
+    """A copy whose MoE blocks have the module tree the official code reads (gate nn.Linear, experts list)."""
+    reference = copy.deepcopy(model)
+    for layer in reference.model.layers:
+        block = layer.mlp
+        gate = torch.nn.Linear(block.gate.weight.shape[1], block.gate.weight.shape[0], bias=False)
+        gate.weight.data.copy_(block.gate.weight)
+        shim = torch.nn.Module()
+        shim.gate = gate
+        shim.experts = torch.nn.ModuleList(block.experts.experts)
+        layer.mlp = shim
+    return reference
+
+
+def renamed(model) -> dict[str, torch.Tensor]:
+    return {n.replace(".experts.experts.", ".experts."): p.detach() for n, p in model.named_parameters()}
+
+
+@pytest.mark.parametrize("kind", ["dense", "moe"])
+def test_the_trained_norms_are_the_official_regex_selection(kind):
+    from test_preprocess_moe import prepared_model
+
+    model = build_tiny_qwen3(head_dim=16, tie=False) if kind == "dense" else prepared_model()
+    ours = trained.residual_norms(make_context(model).net)
+    theirs = list(norm_modules(model).values())
+    assert len(ours) == len(theirs) == 2 * len(model.model.layers)
+    assert all(a is b for a, b in zip(ours, theirs, strict=True))
+
+
+def test_the_moe_gain_and_rotation_folds_equal_the_official_fuse_weight_and_fuse_rotation():
+    from effeval.methods.preprocess.rotation import fold_residual
+    from test_preprocess_moe import prepared_model
+
+    rotation_utils = official("cq1", "utils/rotation_utils.py")
+    model = prepared_model()
+    reference = official_style_moe(model)
+    before = renamed(copy.deepcopy(model))
+    q = cayley_rotation(model.config.hidden_size, 7).weight.detach()
+
+    rotation_utils.fuse_weight(reference, "qwen")
+    rotation_utils.fuse_rotation(reference, "qwen", {"cpu": q}, None)
+
+    ctx = make_context(model)
+    entry = RotationEntry.model_validate(rotation_step()["entries"][0])
+    result = engine.StageResult()
+    prepare_residual(ctx.net, entry, result)
+    fold_residual(ctx.net, entry, q.double(), result)
+
+    ours, theirs = renamed(model), renamed(reference)
+    assert ours.keys() == theirs.keys()
+    for name in ours:
+        assert torch.equal(ours[name], theirs[name]), name
+    changed = [n for n in ours if not torch.equal(ours[n], before[n])]
+    assert any(".mlp.gate." in n for n in changed)
+    assert any(".experts." in n and "down_proj" in n for n in changed)
+
+
+def test_the_scaling_fold_equals_the_official_apply_scaling_vectors(model, batches):
+    pipeline = official("cq2", "rotation/pipeline.py")
+    reference = copy.deepcopy(model)
+    ctx = make_context(model)
+    applied = engine.apply(model, preprocess_of(scaling_step()), ctx)
+    artifact = ctx.artifacts.get_or_compute(
+        applied.artifacts["trained_scaling"].key, lambda: pytest.fail("not cached")
+    )
+    vectors = {}
+    for layer in range(len(model.model.layers)):
+        vectors[f"model.layers.{layer}.input_layernorm"] = artifact[f"norm.input_layernorm.out@{layer}"]
+        vectors[f"model.layers.{layer}.post_attention_layernorm"] = artifact[
+            f"norm.post_attention_layernorm.out@{layer}"
+        ]
+    pipeline.apply_scaling_vectors(reference, "Qwen/Qwen3-4B-Thinking-2507", vectors)
+    for (name, ours), theirs in zip(model.named_parameters(), reference.parameters(), strict=True):
+        assert torch.equal(ours, theirs), name

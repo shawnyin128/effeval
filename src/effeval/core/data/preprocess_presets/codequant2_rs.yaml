@@ -4,8 +4,10 @@ description: CodeQuant2's rotation and scaling for dense reasoning models, a res
 paper: {title: "CodeQuant2: Enhanced Outlier Mitigation and Adaptive Clustering for Low-Precision LRMs", arxiv: "2611.09868", official_repo: "https://github.com/SAI-Lab-NYU/CodeQuant2@eaf112cb"}
 # Calibration deviation, intended until the reasoning-aware mixture is available as a calibration fragment: the
 # official set mixes WikiText rows with 256-token reasoning traces the full-precision model generated for GSM8K
-# problems (wiki_ratio 0.9, random.Random(42) draws); this preset trains on the first 512 WikiText rows alone (the
-# wiki_ratio 1.0 setting, whose rows the official draws at random instead of taking the first) as raw text.
+# problems (wiki_ratio 0.9, random.Random(42) draws); this preset trains on the wiki_ratio 1.0 set alone, raw text: the
+# first 512 non-empty WikiText rows, reordered by random.Random(42) as the official mixed dataset does (pre_shuffle_seed).
+# The scaling stage continues the shuffle stream of the rotation stage (skip_epochs 8), as the
+# official one reuses its DataLoader generator. micro_batch_size 4 only bounds memory (equal gradients up to rounding).
 # Other deviations: the scaling vectors start from a seeded generator (official: the global RNG); losses are computed on
 # the folded and rotated model (official: the unrotated model with R applied in float32 in the hook); the two scaling
 # entries train in one pass with one Adam each, as the official scaling stage does.
@@ -26,6 +28,7 @@ values:
               optimizer: adam
               lr: 0.001
               init_seed: 42
+              micro_batch_size: 4
               calibration:
                 dataset: Self-GRIT/wikitext-2-raw-v1-preprocessed
                 split: train
@@ -36,6 +39,8 @@ values:
                 shuffle_seed: 42
                 chat_template: false
                 padding: max_length
+                drop_empty: true
+                pre_shuffle_seed: 42
             options: {untie_embeddings: true}
       - kind: scaling
         entries:
@@ -49,6 +54,7 @@ values:
               optimizer: adam
               lr: 0.001
               init_seed: 42
+              micro_batch_size: 4
               calibration:
                 dataset: Self-GRIT/wikitext-2-raw-v1-preprocessed
                 split: train
@@ -57,8 +63,11 @@ values:
                 max_length: 512
                 epochs: 8
                 shuffle_seed: 42
+                skip_epochs: 8
                 chat_template: false
                 padding: max_length
+                drop_empty: true
+                pre_shuffle_seed: 42
           - position: norm.post_attention_layernorm.out
             layers: all
             mode: offline

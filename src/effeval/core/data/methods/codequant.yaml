@@ -38,6 +38,13 @@ config_schema:
           - float32
           title: Train Dtype
           type: string
+        train_dense_ffn:
+          default: false
+          description: Also fine-tune clustered linears that are neither attention
+            nor inside a MoE block (dense MLP gate/up) with the local output MSE;
+            the released code keeps them at k-means values.
+          title: Train Dense Ffn
+          type: boolean
         route_gradients:
           default: true
           description: When false the router and the routed experts keep their k-means
@@ -512,6 +519,29 @@ config_schema:
           - max_length
           title: Padding
           type: string
+        drop_empty:
+          default: false
+          description: Drop rows that are empty or whitespace before taking the first
+            n_samples.
+          title: Drop Empty
+          type: boolean
+        pre_shuffle_seed:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          default: null
+          description: 'Reorder the selected rows once before batching, as the official
+            CodeQuant2 mixed dataset does for wiki-only calibration: random.Random(seed).sample(range(m),
+            m), then shuffle.'
+          title: Pre Shuffle Seed
+        skip_epochs:
+          default: 0
+          description: Epochs of the shuffle stream drawn and discarded first, so
+            that a later stage continues the stream of an earlier stage that used
+            the same shuffle_seed.
+          minimum: 0
+          title: Skip Epochs
+          type: integer
       required:
       - dataset
       - n_samples
@@ -545,7 +575,7 @@ display:
 - accf
 default_preset: paper_a4w4_qwen3moe
 custom_presets: {}
-schema_hash: sha256:28c3d0ba119520e87d0ee1ac695f278cfd69413abc4ccf6588af3550342cda59
+schema_hash: sha256:837a2f0fb74b37f0f6e55e3b162f2e7114c2fdd8a4200eeda94a97ad8da94827
 builtin: true
 description: Per-row 16-centroid k-means weights with ACCF centroid fine-tuning (ported
   from the released CodeQuant code).

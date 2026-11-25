@@ -4,8 +4,8 @@ description: CodeQuant A4W4 on DeepSeek-V2-Lite with the released code's setting
 paper: {title: "CodeQuant: Unified Clustering and Quantization for Enhanced Outlier Smoothing in Low-Precision Mixture-of-Experts", arxiv: "2604.10496", official_repo: "https://github.com/SAI-Lab-NYU/CodeQuant@c149bc94"}
 # Released-code behaviour, reproduced: k-means runs in float32 before the cast to the model dtype; the hub modeling_deepseek.py runs the routed experts under no_grad and the router
 # KL uses the original gate weight, so routed experts and the router keep their k-means centroids (route_gradients
-# false) while q_proj, kv_a_proj_with_mqa and the shared experts are fine-tuned. Not reproduced: the dense layer-0 MLP is
-# k-means only in the released code (no loss reaches it) but is fine-tuned here with the local loss.
+# false) while q_proj, kv_a_proj_with_mqa and the shared experts are fine-tuned. The dense layer-0 MLP is
+# k-means only (train_dense_ffn false), as in the released code.
 values:
   method.config.rules:
     value:
@@ -52,6 +52,9 @@ values:
   method.config.accf.train_dtype:
     value: model
     source: "code: script/cluster_fine_tune_script.py#L210 (every ClusterLinear tensor is cast to the model dtype, so the centroid SGD runs in bf16 on these checkpoints)"
+  method.config.accf.train_dense_ffn:
+    value: false
+    source: "code: script/cluster_fine_tune_script.py#L105 (gate_proj and up_proj are ffn linears: a loss reaches them only through a ClusterMoE, so dense MLP linears keep their k-means values)"
   method.config.accf.route_gradients:
     value: false
     source: "code: cluster/ClusterMoE.py#L91-L93 (router logits from the original gate weight; the hub DeepseekV2MoE.moe_infer is under no_grad)"

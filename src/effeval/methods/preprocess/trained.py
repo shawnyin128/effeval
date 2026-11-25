@@ -8,11 +8,13 @@ matrix and the loss history are cached as an artifact, so a cached run folds wit
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Sequence
 
 import torch
 from torch import nn
+from torch.nn.utils import parametrize
 
 from effeval.core.graph import LayerGraph
 from effeval.core.preprocess import SOURCE_VERSIONS, RotationEntry, ScalingEntry
@@ -32,6 +34,20 @@ from effeval.ops.calibration import text_batches
 from effeval.ops.orthogonal import act_quant_mse, cayley_rotation, trainable
 
 
+def micro_batches(batch, size: int | None) -> list[tuple[dict[str, torch.Tensor], float]]:
+    """Split a batch (mapping of tensors with the rows on dim 0) into chunks of `size` rows.
+
+    Returns (chunk, weight) pairs, weight = chunk rows / all rows (a single chunk with weight 1 for `size`
+    None). The loss of every row is a mean over the rows' elements, so the weighted sum of the chunk losses
+    equals the full-batch loss and so do the accumulated gradients, up to float rounding.
+    """
+    rows = len(next(iter(batch.values())))
+    if size is None or size >= rows:
+        return [(dict(batch), 1.0)]
+    chunks = [(i, min(i + size, rows)) for i in range(0, rows, size)]
+    return [({k: v[a:b] for k, v in batch.items()}, (b - a) / rows) for a, b in chunks]
+
+
 def train_rotation(
     model: nn.Module,
     norms: Sequence[nn.Module],
@@ -39,19 +55,24 @@ def train_rotation(
     rotation: nn.Module,
     bits: int,
     lr: float,
+    micro_batch_size: int | None = None,
 ) -> list[float]:
     """Train `rotation` (a `cayley_rotation`) with Adam, one step per batch; returns the loss per step.
 
     Each step runs `model` on the batch without gradients and sums `act_quant_mse(output @ R, bits)` over
-    the outputs of `norms`, taken in float32. Padding tokens count. The model's training flag is restored.
+    the outputs of `norms`, taken in float32 and multiplied with R moved to the output's device. Padding
+    tokens count. With `micro_batch_size` the batch is split in chunks (see `micro_batches`) whose weighted
+    losses are backpropagated one by one, with the Cayley matrix built once per chunk instead of once per
+    norm. The model's training flag is restored.
     """
     optimizer = torch.optim.Adam([trainable(rotation)], lr=lr)
     losses: list[torch.Tensor] = []
+    home = trainable(rotation).device
 
     def hook(_module, _args, output):
         with torch.enable_grad():
-            rotated = output.detach().float().to(rotation.weight.device) @ rotation.weight
-            losses.append(act_quant_mse(rotated, bits))
+            rotated = output.detach().float() @ rotation.weight.to(output.device)
+            losses.append(act_quant_mse(rotated, bits).to(home))
 
     handles = [norm.register_forward_hook(hook) for norm in norms]
     device = next(model.parameters()).device
@@ -60,14 +81,18 @@ def train_rotation(
     history: list[float] = []
     try:
         for batch in batches:
-            losses.clear()
-            with torch.no_grad():
-                model(**batch.to(device), use_cache=False)
-            total = torch.stack(losses).sum()
             optimizer.zero_grad()
-            total.backward()
+            step_loss = 0.0
+            for chunk, weight in micro_batches(batch, micro_batch_size):
+                losses.clear()
+                with parametrize.cached() if micro_batch_size is not None else contextlib.nullcontext():
+                    with torch.no_grad():
+                        model(**{k: v.to(device) for k, v in chunk.items()}, use_cache=False)
+                    total = torch.stack(losses).sum() * weight
+                    total.backward()
+                step_loss += total.item()
             optimizer.step()
-            history.append(total.item())
+            history.append(step_loss)
     finally:
         for handle in handles:
             handle.remove()
@@ -82,12 +107,14 @@ def train_scaling(
     init: dict[str, torch.Tensor],
     bits: int,
     lr: float,
+    micro_batch_size: int | None = None,
 ) -> tuple[dict[str, torch.Tensor], list[float]]:
     """Train one scaling vector per norm in `norms` (name -> module), each with its own Adam.
 
     The loss of vector s on its norm is `act_quant_mse(output / s, bits)` with the output taken detached in
-    float32; the model forward does not depend on s. `init[name]` is the starting vector. Returns the final
-    vectors (float32, CPU) and the sum of the per-norm losses per step.
+    float32; the model forward does not depend on s. `init[name]` is the starting vector. With
+    `micro_batch_size` the gradients of the weighted chunk losses are accumulated (see `micro_batches`).
+    Returns the final vectors (float32, CPU) and the sum of the per-norm losses per step.
     """
     params = {
         name: nn.Parameter(init[name].detach().clone().float().to(norm.weight.device))
@@ -111,19 +138,33 @@ def train_scaling(
     history: list[float] = []
     try:
         for batch in batches:
-            losses.clear()
-            with torch.no_grad():
-                model(**batch.to(device), use_cache=False)
-            for name, loss in losses.items():
-                optimizers[name].zero_grad()
-                loss.backward()
-                optimizers[name].step()
-            history.append(sum(loss.item() for loss in losses.values()))
+            for optimizer in optimizers.values():
+                optimizer.zero_grad()
+            step_loss = 0.0
+            for chunk, weight in micro_batches(batch, micro_batch_size):
+                losses.clear()
+                with torch.no_grad():
+                    model(**{k: v.to(device) for k, v in chunk.items()}, use_cache=False)
+                for loss in losses.values():
+                    (loss * weight).backward()
+                    step_loss += loss.item() * weight
+            for optimizer in optimizers.values():
+                optimizer.step()
+            history.append(step_loss)
     finally:
         for handle in handles:
             handle.remove()
         model.train(was_training)
     return {name: param.detach().cpu() for name, param in params.items()}, history
+
+
+def residual_norms(net) -> list[nn.Module]:
+    """The hidden-axis norm modules reading the residual stream, layer by layer (input norm first)."""
+    return [
+        net.module(layer, norm_node)
+        for layer in range(len(net.layers))
+        for norm_node, _consumers in net.stream_consumers()
+    ]
 
 
 def _flat_batches(ctx: Context, calibration) -> list:
@@ -156,15 +197,16 @@ def apply_trained_rotation(
     )
 
     def compute() -> dict[str, torch.Tensor]:
-        norms = [
-            net.module(layer, norm_node)
-            for layer in range(len(net.layers))
-            for norm_node, _consumers in net.stream_consumers()
-        ]
         rotation = cayley_rotation(net.shape.hidden, src.init_seed, net.embedding.weight.device)
         with attached_online(model, list(ctx.pending_online)):
             history = train_rotation(
-                model, norms, _flat_batches(ctx, src.calibration), rotation, src.act.bits, src.lr
+                model,
+                residual_norms(net),
+                _flat_batches(ctx, src.calibration),
+                rotation,
+                src.act.bits,
+                src.lr,
+                src.micro_batch_size,
             )
         return {"R": rotation.weight.detach().cpu(), "losses": torch.tensor(history, dtype=torch.float64)}
 
@@ -221,7 +263,13 @@ def apply_trained_scaling(
         norms = {name: net.module(layer, group.prev) for group, layer, name in targets}
         with attached_online(model, list(ctx.pending_online)):
             vectors, history = train_scaling(
-                model, norms, _flat_batches(ctx, src.calibration), init, src.act.bits, src.lr
+                model,
+                norms,
+                _flat_batches(ctx, src.calibration),
+                init,
+                src.act.bits,
+                src.lr,
+                src.micro_batch_size,
             )
         return {**vectors, "losses": torch.tensor(history, dtype=torch.float64)}
 

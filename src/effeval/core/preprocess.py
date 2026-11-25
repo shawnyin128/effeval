@@ -79,6 +79,12 @@ class TrainedRotation(StrictModel):
         default=0, description="Seed of the float32 nn.Linear whose weight initialises the rotation."
     )
     calibration: TextBatches
+    micro_batch_size: int | None = Field(
+        default=None,
+        ge=1,
+        description="Rows per forward pass; each calibration batch is split into micro-batches whose "
+        "gradients are accumulated, which equals the full-batch gradient and bounds activation memory.",
+    )
 
     @field_validator("act")
     @classmethod
@@ -129,6 +135,12 @@ class TrainedScaling(StrictModel):
     lr: float = Field(gt=0.0, description="Adam learning rate.")
     init_seed: int = Field(default=0, description="Seed of the generator drawing the initial vectors.")
     calibration: TextBatches
+    micro_batch_size: int | None = Field(
+        default=None,
+        ge=1,
+        description="Rows per forward pass; each calibration batch is split into micro-batches whose "
+        "gradients are accumulated, which equals the full-batch gradient and bounds activation memory.",
+    )
 
     @field_validator("act")
     @classmethod

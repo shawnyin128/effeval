@@ -241,3 +241,100 @@ def test_reasoning_mixture_without_wiki_and_with_too_few_rows():
         reasoning_mixture(["a", "b"], ["w"], lambda ps: ["x"] * len(ps), tokenizer, total=5, wiki_ratio=0.5)
     with pytest.raises(ValueError, match="completions"):
         reasoning_mixture(["a", "b"], [], lambda ps: ["x"], tokenizer, total=2, wiki_ratio=0.0)
+
+
+BLANKS = [
+    "alpha",
+    "",
+    "a considerably longer second row",
+    "   ",
+    "gamma gamma",
+    "delta",
+    "",
+    "epsilon epsilon",
+]
+
+
+@pytest.fixture
+def official_wiki(monkeypatch):
+    official = _official_module("cq2", "utils/reasoning_data_utils.py")
+    monkeypatch.setattr(
+        datasets, "load_dataset", lambda name, split: datasets.Dataset.from_dict({"text": BLANKS})
+    )
+    monkeypatch.setattr(
+        calibration_module, "load_dataset", lambda name, split: datasets.Dataset.from_dict({"text": BLANKS})
+    )
+    return official
+
+
+def _row_sums(epoch):
+    return sorted(int(row.sum()) for batch in epoch for row in batch["input_ids"])
+
+
+def test_drop_empty_takes_the_first_non_empty_rows_like_the_official_wikitext_dataset(official_wiki):
+    expected = official_wiki.WikiTextDataset("fake/blanks", "train", limit=4).texts
+    assert len(expected) == 4 and all(t.strip() for t in expected)
+    cfg = _config(n_samples=4, batch_size=4, epochs=1, chat_template=False, drop_empty=True)
+    (epoch,) = text_batches(cfg, ListTokenizer())
+    reference = ListTokenizer()(expected, "pt", True, True, cfg.max_length)
+    assert _row_sums(epoch) == sorted(int(row.sum()) for row in reference["input_ids"])
+
+
+def test_blank_rows_are_kept_unless_drop_empty_is_set(official_wiki):
+    cfg = _config(n_samples=4, batch_size=4, epochs=1, chat_template=False)
+    (epoch,) = text_batches(cfg, ListTokenizer())
+    kept = ListTokenizer()(BLANKS[:4], "pt", True, True, cfg.max_length)
+    assert _row_sums(epoch) == sorted(int(row.sum()) for row in kept["input_ids"])
+
+
+def test_skip_epochs_continues_the_official_dataloader_stream(official_wiki):
+    from torch.utils.data import DataLoader
+
+    dataset = official_wiki.WikiTextDataset("fake/blanks", "train", limit=5)
+    generator = torch.Generator()
+    generator.manual_seed(42)
+    loader = DataLoader(dataset, batch_size=2, shuffle=True, num_workers=0, generator=generator)
+    official = [[[row["text"] for row in batch] for batch in _split(loader)] for _ in range(4)]
+    cfg = _config(n_samples=5, batch_size=2, epochs=2, skip_epochs=2, chat_template=False, drop_empty=True)
+    result = text_batches(cfg, ListTokenizer())
+    for epoch, texts_of_epoch in zip(result, official[2:], strict=True):
+        for batch, texts in zip(epoch, texts_of_epoch, strict=True):
+            reference = ListTokenizer()(texts, "pt", True, True, cfg.max_length)
+            assert torch.equal(batch["input_ids"], reference["input_ids"])
+    assert official[0] != official[2]
+
+
+def _split(loader):
+    """The batches of one epoch of an official loader as lists of rows (collated dicts split back)."""
+    for batch in loader:
+        yield [{"text": text} for text in batch["text"]]
+
+
+@pytest.mark.parametrize("skip", [0, 2])
+def test_pre_shuffled_wiki_only_batches_equal_the_official_mixed_dataset_and_dataloader(official_wiki, skip):
+    from torch.utils.data import DataLoader
+
+    wiki = official_wiki.WikiTextDataset("fake/blanks", "train", limit=5)
+    mixed = official_wiki.MixedDataset([], wiki, total=5, wiki_ratio=1.0, seed=42)
+    generator = torch.Generator()
+    generator.manual_seed(42)
+    loader = DataLoader(mixed, batch_size=2, shuffle=True, num_workers=0, generator=generator)
+    official = [[batch["text"] for batch in loader] for _ in range(skip + 2)][skip:]
+    cfg = _config(
+        n_samples=5,
+        batch_size=2,
+        epochs=2,
+        skip_epochs=skip,
+        chat_template=False,
+        drop_empty=True,
+        pre_shuffle_seed=42,
+    )
+    result = text_batches(cfg, ListTokenizer())
+    for epoch, texts_of_epoch in zip(result, official, strict=True):
+        for batch, texts in zip(epoch, texts_of_epoch, strict=True):
+            reference = ListTokenizer()(list(texts), "pt", True, True, cfg.max_length)
+            assert torch.equal(batch["input_ids"], reference["input_ids"])
+    unshuffled = text_batches(cfg.model_copy(update={"pre_shuffle_seed": None}), ListTokenizer())
+    flat = [t for epoch in result for b in epoch for t in b["input_ids"].sum(dim=1).tolist()]
+    flat_unshuffled = [t for epoch in unshuffled for b in epoch for t in b["input_ids"].sum(dim=1).tolist()]
+    assert flat != flat_unshuffled

@@ -401,6 +401,20 @@ class TextBatches(StrictModel):
     padding: Literal["longest", "max_length"] = Field(
         default="longest", description="Pad each batch to its longest row or to max_length."
     )
+    drop_empty: bool = Field(
+        default=False, description="Drop rows that are empty or whitespace before taking the first n_samples."
+    )
+    pre_shuffle_seed: int | None = Field(
+        default=None,
+        description="Reorder the selected rows once before batching, as the official CodeQuant2 mixed "
+        "dataset does for wiki-only calibration: random.Random(seed).sample(range(m), m), then shuffle.",
+    )
+    skip_epochs: int = Field(
+        default=0,
+        ge=0,
+        description="Epochs of the shuffle stream drawn and discarded first, so that a later stage continues "
+        "the stream of an earlier stage that used the same shuffle_seed.",
+    )
 
     @model_validator(mode="after")
     def _thinking_needs_template(self) -> TextBatches:

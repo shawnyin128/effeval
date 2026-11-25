@@ -54,6 +54,9 @@ values:
   method.config.accf.train_dtype:
     value: model
     source: "code: script/cluster_fine_tune_script.py#L210 (every ClusterLinear tensor is cast to the model dtype, so the centroid SGD runs in bf16 on these checkpoints)"
+  method.config.accf.train_dense_ffn:
+    value: false
+    source: "code: script/cluster_fine_tune_script.py#L105 (gate_proj and up_proj are ffn linears: a loss reaches them only through a ClusterMoE, so dense MLP linears keep their k-means values)"
   method.config.accf.route_gradients:
     value: true
     source: "code: cluster/ClusterMoE.py#L33-L66 (the Qwen path trains the router and every expert through the MoE loss)"
