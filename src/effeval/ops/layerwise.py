@@ -131,6 +131,7 @@ def optimize_layer(
     loss: Literal["mse", "smooth_l1"],
     epochs: int,
     post_step: Callable[[nn.Module], None] | None = None,
+    val_micro_batch: int | None = None,
 ) -> OptimizeResult:
     """Train `layer` to reproduce the target batches from the input batches, keeping the best state.
 
@@ -140,13 +141,19 @@ def optimize_layer(
     validation loss (the initial state if none improves) is loaded at the end. `post_step(layer)` runs after
     every optimizer step. Gradients are enabled for the training forward and backward whatever the caller's
     grad mode (a `torch.no_grad` caller is fine; `torch.inference_mode` is not supported).
+
+    The validation loss is the mean over validation batches of each batch's mean loss. With `val_micro_batch`
+    every validation batch is run through the layer in slices of that many sequences (moved to the layer's
+    device one slice at a time), each slice's loss weighted by its share of the batch, which is the same value
+    in exact arithmetic; this needs `kwargs` that do not depend on the batch dimension.
     """
     train_in, train_out = train
     val_in, val_out = val
     steps = epochs * len(train_in)
     schedulers = [CosineAnnealingParam(g["lr"], g["lr"] / 20, steps) for g in param_groups]
     optimizer = torch.optim.AdamW(param_groups)
-    device_type = next(layer.parameters()).device.type
+    device = next(layer.parameters()).device
+    device_type = device.type
     cuda = device_type == "cuda"
     scaler = torch.amp.GradScaler(device_type, enabled=cuda)
     criterion = _loss_fn(loss)
@@ -156,8 +163,13 @@ def optimize_layer(
     def val_loss() -> torch.Tensor:
         total = None
         for inp, target in zip(val_in, val_out, strict=True):
-            value = criterion(target, _layer_output(layer, inp, kwargs))
-            total = value if total is None else total + value
+            size = inp.shape[0]
+            step = size if val_micro_batch is None else val_micro_batch
+            for start in range(0, size, step):
+                piece = slice(start, start + step)
+                output = _layer_output(layer, inp[piece].to(device), kwargs)
+                value = criterion(target[piece].to(device), output) * (output.shape[0] / size)
+                total = value if total is None else total + value
         return total / len(val_in)
 
     original = val_loss()
@@ -253,6 +265,7 @@ def train_layerwise(
     cache_shards: int,
     val_batch_size: int | None = None,
     post_step: Callable[[nn.Module], None] | None = None,
+    val_micro_batch: int | None = 2,
 ) -> list[list[OptimizeResult]]:
     """Process the decoder layers of `model` in order; returns the per-layer, per-stage `OptimizeResult`s.
 
@@ -262,8 +275,8 @@ def train_layerwise(
     already finalized earlier layers (the layer's original inputs for layer 0). `finalize_fn(index, layer,
     trained)` turns the layer back into plain linears while a trained layer is still in float32; the layer is
     then cast to the model dtype and the next layer's inputs come from it. The model stays on its device;
-    cached activations live on the CPU, `cache_shards` of the training set at a time on the device. The model
-    is expected on one device.
+    cached activations live on the CPU, `cache_shards` of the training set at a time on the device and the
+    validation batches `val_micro_batch` sequences at a time. The model is expected on one device.
     """
     layers = sites.decoder_layers(model)
     device = next(model.parameters()).device
@@ -289,8 +302,6 @@ def train_layerwise(
                 layer.to(device).float()
                 train_in = CachedTensorShards(quantized_train, cache_shards, target_device=device)
                 train_out = CachedTensorShards(fp_train_out, cache_shards, target_device=device)
-                val_in = [b.to(device) for b in quantized_val]
-                val_out = [b.to(device) for b in fp_val_out]
                 for stage in stages:
                     _empty_cache()
                     results.append(
@@ -298,14 +309,15 @@ def train_layerwise(
                             layer,
                             kwargs,
                             (train_in, train_out),
-                            (val_in, val_out),
+                            (quantized_val, fp_val_out),
                             stage.param_groups(layer),
                             loss=loss,
                             epochs=stage.epochs,
                             post_step=post_step,
+                            val_micro_batch=val_micro_batch,
                         )
                     )
-                del train_in, train_out, val_in, val_out
+                del train_in, train_out
                 _empty_cache()
             finalize_fn(index, layer, trained)
             layer.to(dtype).to(device)
