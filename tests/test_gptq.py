@@ -345,7 +345,9 @@ def test_true_sequential_changes_the_solution():
 
 
 def test_true_sequential_rejects_a_linear_outside_the_groups(monkeypatch):
-    monkeypatch.setattr("effeval.methods.quantization.gptq.TRUE_SEQUENTIAL_GROUPS", (("attn.k_proj",),))
+    monkeypatch.setattr(
+        "effeval.methods.quantization.gptq.sequential_groups", lambda _graph: [["attn.k_proj"]]
+    )
     windows = [torch.randint(0, 97, (1, 16))]
     with pytest.raises(ValueError, match="no group for linears"):
         quantize_model(tiny_qwen3(), windows, _config(true_sequential=True))

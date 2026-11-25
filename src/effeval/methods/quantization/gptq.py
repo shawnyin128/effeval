@@ -13,6 +13,7 @@ Shape symbols: R rows (out features), C columns (in features), L calibration seq
 
 from __future__ import annotations
 
+import logging
 import math
 from collections import defaultdict
 
@@ -21,11 +22,15 @@ from pydantic import Field, model_validator
 from torch import nn
 
 from effeval.core.fragments import Calibration, IntFormat, QuantRule
+from effeval.core.graph import LayerGraph
 from effeval.core.registry import method
 from effeval.core.types import StrictModel
 from effeval.ops import sites
 from effeval.ops.calibration import LayerRunner, calibration_windows
 from effeval.ops.quant.formats import IntGrid, int_grid
+from effeval.ops.quant.quant import fake_quantize
+
+logger = logging.getLogger(__name__)
 
 
 class GPTQConfig(StrictModel):
@@ -41,6 +46,12 @@ class GPTQConfig(StrictModel):
         default=False,
         description="Quantize each layer's linears in groups (k/v/q, o, up/gate, down), re-running the layer "
         "between groups so later groups see the quantized earlier ones, as the official `--true-sequential`.",
+    )
+    moe_min_tokens: int = Field(
+        default=1,
+        ge=1,
+        description="A routed expert that sees fewer calibration tokens than this is quantized by RTN with "
+        "the same format instead of GPTQ (its Hessian would be empty or rank-deficient).",
     )
     calibration: Calibration
 
@@ -77,11 +88,13 @@ class HessianAccumulator:
     def __init__(self, columns: int, device: torch.device):
         self.H = torch.zeros((columns, columns), device=device)  # [C, C]
         self.nsamples = 0
+        self.tokens = 0
 
     def add_batch(self, inp: torch.Tensor) -> None:
         if inp.dim() == 2:
             inp = inp.unsqueeze(0)
         batch = inp.shape[0]
+        self.tokens += inp.numel() // inp.shape[-1]
         if inp.dim() == 3:
             inp = inp.reshape((-1, inp.shape[-1]))  # [B * L, C]
         inp = inp.t()  # [C, B * L]
@@ -169,12 +182,32 @@ def quantize_weight(
     return Q
 
 
-TRUE_SEQUENTIAL_GROUPS = (
-    ("attn.k_proj", "attn.v_proj", "attn.q_proj"),
-    ("attn.o_proj",),
-    ("mlp.up_proj", "mlp.gate_proj"),
-    ("mlp.down_proj",),
-)
+def sequential_groups(graph: LayerGraph) -> list[list[str]]:
+    """Canonical linear names grouped by shared producer, groups ordered by the producer's depth in `graph`.
+
+    Linears reading the same activation form one group (dense: k/v/q, o, gate/up, down; MoE: router and
+    expert gate/up share the post-attention norm, expert down follows the gating product).
+    """
+    depth: dict[str, int] = {}
+
+    def depth_of(node_id: str) -> int:
+        if node_id not in depth:
+            depth[node_id] = max((depth_of(p.id) + 1 for p, _ in graph.producers(node_id)), default=0)
+        return depth[node_id]
+
+    by_producer: dict[str, list[str]] = {}
+    for node in graph.of_kind("linear"):
+        [(producer, _site)] = graph.producers(node.id)
+        by_producer.setdefault(producer.id, []).append(node.canon)
+    order = {p: i for i, p in enumerate(by_producer)}
+    return [by_producer[p] for p in sorted(by_producer, key=lambda p: (depth_of(p), order[p]))]
+
+
+def _canon(site: str) -> str:
+    """Canonical linear name of a weight site: `linear.<canon>.weight`, or the router's name for its site."""
+    if site.startswith("moe.router."):
+        return "mlp.router"
+    return site.removeprefix("linear.").removesuffix(".weight")
 
 
 def _hessian_hook(accumulator: HessianAccumulator):
@@ -184,24 +217,44 @@ def _hessian_hook(accumulator: HessianAccumulator):
     return hook
 
 
+Target = tuple[nn.Module, IntFormat, int | None]
+"""A weight to quantize: its module, format and expert index (None outside routed experts)."""
+
+
 def _quantize_group(
-    runner: LayerRunner, layer: nn.Module, group: list[tuple[nn.Module, IntFormat]], cfg: GPTQConfig
+    runner: LayerRunner,
+    layer: nn.Module,
+    group: list[Target],
+    cfg: GPTQConfig,
+    layer_index: int,
+    starved: set[tuple[int, int]],
 ) -> None:
-    """Collect Hessians of `group`'s linears over all windows through `layer`, then quantize them in place."""
+    """Collect Hessians of `group`'s linears over all windows through `layer`, then quantize them in place.
+
+    A routed expert that saw fewer than `cfg.moe_min_tokens` tokens is quantized by RTN instead, logged once
+    per (layer, expert) through `starved`.
+    """
     accumulators = {
-        id(module): HessianAccumulator(module.weight.shape[1], module.weight.device) for module, _ in group
+        id(module): HessianAccumulator(module.weight.shape[1], module.weight.device) for module, _, _ in group
     }
-    hooks = [module.register_forward_hook(_hessian_hook(accumulators[id(module)])) for module, _ in group]
+    hooks = [module.register_forward_hook(_hessian_hook(accumulators[id(module)])) for module, _, _ in group]
     try:
         for hidden in runner.inputs:
             runner.forward(layer, hidden)
     finally:
         for hook in hooks:
             hook.remove()
-    for module, fmt in group:
+    for module, fmt, expert in group:
+        accumulator = accumulators[id(module)]
+        if expert is not None and accumulator.tokens < cfg.moe_min_tokens:
+            if (layer_index, expert) not in starved:
+                starved.add((layer_index, expert))
+                logger.warning("expert %d.%d: %d tokens, RTN", layer_index, expert, accumulator.tokens)
+            module.weight.data = fake_quantize(module.weight.data, fmt, kind="weight")
+            continue
         quantized = quantize_weight(
             module.weight.data,
-            accumulators[id(module)].H,
+            accumulator.H,
             fmt,
             blocksize=cfg.blocksize,
             percdamp=cfg.percdamp,
@@ -218,26 +271,34 @@ def quantize_model(model: nn.Module, windows: list[torch.Tensor], cfg: GPTQConfi
     Rules on non-weight sites are attached once every weight is quantized.
     """
     assignment, _ = sites.resolve(model, cfg.weight_rules)
-    targets: dict[int, dict[str, tuple[nn.Module, IntFormat]]] = defaultdict(dict)
-    for (site, layer), (_rule, location, fmt) in assignment.items():
+    layout = sites.architecture(model)
+    targets: dict[int, dict[tuple[str, int | None], Target]] = defaultdict(dict)
+    for key, (_rule, location, fmt) in assignment.items():
+        site, layer = key[0], key[1]
         if layer is None:
             raise ValueError("GPTQ quantizes decoder-layer linears; lm_head is not supported")
-        targets[layer][site.removeprefix("linear.").removesuffix(".weight")] = (location.module, fmt)
+        targets[layer][(_canon(site), location.expert)] = (location.module, fmt, location.expert)
 
+    groups: list[list[str]] = []
+    if cfg.true_sequential:
+        graph = layout.effective_graph()
+        if graph is None:
+            raise ValueError(f"{layout.name} has no architecture graph; true_sequential needs one")
+        groups = sequential_groups(graph)
+    starved: set[tuple[int, int]] = set()
     with LayerRunner(model, windows) as runner:
         for index, layer in runner:
             layer_targets = targets.get(index, {})
             if cfg.true_sequential:
-                grouped = {name for group in TRUE_SEQUENTIAL_GROUPS for name in group}
-                unplaced = sorted(set(layer_targets) - grouped)
+                unplaced = sorted({canon for canon, _ in layer_targets} - {c for g in groups for c in g})
                 if unplaced:
                     raise ValueError(f"true_sequential has no group for linears {unplaced} in layer {index}")
-                steps = [[n for n in group if n in layer_targets] for group in TRUE_SEQUENTIAL_GROUPS]
+                steps = [[k for k in layer_targets if k[0] in group] for group in groups]
             else:
                 steps = [list(layer_targets)]
             for names in steps:
                 if names:
-                    _quantize_group(runner, layer, [layer_targets[n] for n in names], cfg)
+                    _quantize_group(runner, layer, [layer_targets[n] for n in names], cfg, index, starved)
 
     if cfg.other_rules:
         sites.attach(model, cfg.other_rules)

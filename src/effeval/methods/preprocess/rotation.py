@@ -148,8 +148,8 @@ def _rotate_residual(net: Net, entry: RotationEntry, result: StageResult) -> Non
         for layer in range(len(net.layers)):
             gain = net.module(layer, norm_node).weight
             for linear_node in consumers:
-                linear = net.module(layer, linear_node)
-                _set(linear.weight, scale_input_columns(linear.weight, gain))
+                for linear in net.modules(layer, linear_node):
+                    _set(linear.weight, scale_input_columns(linear.weight, gain))
             gain.data.fill_(1)
     final_gain = net.final_norm.weight
     _set(lm_head.weight, scale_input_columns(lm_head.weight, final_gain))
@@ -163,12 +163,12 @@ def _rotate_residual(net: Net, entry: RotationEntry, result: StageResult) -> Non
     for layer in range(len(net.layers)):
         for _norm_node, consumers in layer_norms:
             for linear_node in consumers:
-                linear = net.module(layer, linear_node)
-                _set(linear.weight, rot.fold_input(linear.weight, q))
+                for linear in net.modules(layer, linear_node):
+                    _set(linear.weight, rot.fold_input(linear.weight, q))
         for linear_node in net.stream_producers():
-            linear = net.module(layer, linear_node)
-            _set(linear.weight, rot.fold_output(linear.weight, q))
-            _rotate_bias(linear, q)
+            for linear in net.modules(layer, linear_node):
+                _set(linear.weight, rot.fold_output(linear.weight, q))
+                _rotate_bias(linear, q)
     result.edits.append(
         f"residual: {entry.source.type} {shape.hidden}x{shape.hidden} folded into embedding, "
         f"{len(net.layers)} layers and lm_head"
@@ -280,8 +280,8 @@ def _rotate_linear_input(net: Net, entry: RotationEntry, graph: LayerGraph, resu
     matrix = rotation_matrix(entry.source, n, entry.position)
     layers = net.layer_indices(entry.layers)
     for layer in layers:
-        linear = net.module(layer, node)
-        _set(linear.weight, rot.fold_input(linear.weight, matrix))
+        for linear in net.modules(layer, node):
+            _set(linear.weight, rot.fold_input(linear.weight, matrix))
     op = _linear_input_op(entry.source, n, entry.position, matrix)
     result.online.append(OnlineOp(entry.position, op, entry.layers))
     result.edits.append(

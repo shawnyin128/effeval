@@ -68,9 +68,24 @@ class Net:
         self.lm_head: nn.Linear = model.get_submodule(graph.globals.lm_head)
 
     def module(self, layer: int, node: GraphNode) -> nn.Module:
-        """The module of a graph node (linear or norm) in decoder layer `layer`."""
+        """The module of a graph node (linear or norm) in decoder layer `layer`; not for routed experts."""
         assert node.module is not None, f"graph node {node.id} is not a module"
+        if node.experts:
+            raise EngineError(f"graph node {node.id} is one module per expert; use Net.modules")
         return self.layers[layer].get_submodule(node.module)
+
+    def modules(self, layer: int, node: GraphNode) -> list[nn.Module]:
+        """Every module of a graph node in decoder layer `layer`: all routed experts for an `experts` node,
+        and none when the layer does not have the node (`node.layers`, or a router or expert node in a
+        dense layer).
+        """
+        assert node.module is not None, f"graph node {node.id} is not a module"
+        if node.layers is not None and layer not in self.layer_indices(node.layers):
+            return []
+        moe = self.layout.moe
+        if moe is not None and (node.experts or node.module == moe.router) and layer not in moe.layers:
+            return []
+        return [m for _, m in sites.expand_path(self.layers[layer], node.module)]
 
     def linear_node(self, canon: str) -> GraphNode:
         """The graph node of the linear with canonical name `canon` (e.g. `mlp.down_proj`)."""
@@ -90,12 +105,26 @@ class Net:
         return out
 
     def stream_producers(self) -> list[GraphNode]:
-        """Linears writing into the residual stream."""
+        """Linears writing into the residual stream, directly or through a `route` node (routed experts).
+
+        The router feeds a `route` node only its weights, so it is not a producer.
+        """
         stream = {n.id for n in self.graph.nodes if n.kind in ("residual", "add")}
+        router = None if self.layout.moe is None else self.layout.moe.router
+
+        def reaches_stream(node: GraphNode, producer: GraphNode) -> bool:
+            if node.id in stream:
+                return True
+            return (
+                node.kind == "route"
+                and producer.module != router
+                and any(c.id in stream for c, _ in self.graph.consumers(node.id))
+            )
+
         return [
             n
             for n in self.graph.of_kind("linear")
-            if any(c.id in stream for c, _ in self.graph.consumers(n.id))
+            if any(reaches_stream(c, n) for c, _ in self.graph.consumers(n.id))
         ]
 
 

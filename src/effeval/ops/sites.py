@@ -8,6 +8,13 @@ Site vocabulary (architecture.md §5.7):
   attn.scores                   QK^T * scaling, before the mask is added
   attn.probs                    softmax output
   attn.out                      PV output, before the output projection
+  moe.router.{weight,input}     the router of a MoE layer; never matched by `linear.*` (its `output`
+                                is a tuple and is rejected)
+
+Routed experts are addressed like any linear, one location per expert: `linear.mlp.experts.gate_proj.input`
+hooks every expert and fires only on the tokens routed to it. Per-token and per-group activation formats then
+equal quantizing the block input once; a per-tensor dynamic format does not, since each expert sees only
+its own tokens.
 
 Shape symbols: B batch, H heads, S query length, T key length, D head dim.
 """
@@ -102,16 +109,57 @@ class _Location:
     site: str
     layer: int | None
     module: nn.Module
+    expert: int | None = None
+
+    @property
+    def key(self) -> tuple:
+        """`(site, layer)`, extended with the expert index for a routed-expert location."""
+        return (self.site, self.layer) if self.expert is None else (self.site, self.layer, self.expert)
+
+
+def _find(root: nn.Module, path: str) -> nn.Module | None:
+    module = root
+    for part in path.split("."):
+        module = module._modules.get(part)
+        if module is None:
+            return None
+    return module
+
+
+def expand_path(layer: nn.Module, path: str, *, strict: bool = True) -> list[tuple[int | None, nn.Module]]:
+    """Modules a layout path names inside one decoder layer, as `(expert index or None, module)`.
+
+    A `*` stands for the routed experts of an unfused experts container (`<container>.*.<rest>`). A path the
+    layer does not have yields an empty list when `strict` is False and raises AttributeError otherwise.
+    Raises SiteError when the container still holds fused experts.
+    """
+    if "*" not in path:
+        module = layer.get_submodule(path) if strict else _find(layer, path)
+        return [] if module is None else [(None, module)]
+    prefix, rest = path.split(".*.", 1)
+    container = layer.get_submodule(prefix) if strict else _find(layer, prefix)
+    if container is None:
+        return []
+    experts = getattr(container, "experts", None)
+    if not isinstance(experts, nn.ModuleList):
+        raise SiteError(f"{prefix} holds fused experts; unfuse them first (runtime.moe.unfuse_experts)")
+    found = ((e, _find(expert, rest)) for e, expert in enumerate(experts))
+    return [(e, module) for e, module in found if module is not None]
 
 
 def _candidates(model: nn.Module) -> list[_Location]:
     layout = architecture(model)
     layers = decoder_layers(model)
+    moe = layout.moe
     out: list[_Location] = []
     for index, layer in enumerate(layers):
         for path, canon in layout.linears.items():
-            module = layer.get_submodule(path)
-            out.extend(_Location(f"linear.{canon}.{t}", index, module) for t in SITE_TENSORS)
+            for expert, module in expand_path(layer, path, strict=moe is None):
+                out.extend(_Location(f"linear.{canon}.{t}", index, module, expert) for t in SITE_TENSORS)
+        if moe is not None and index in moe.layers:
+            router = _find(layer, moe.router)
+            if router is not None:
+                out.extend(_Location(f"moe.router.{t}", index, router) for t in SITE_TENSORS)
         if layout.attention_path is not None and layout.supports_attention_backend:
             attention = layer.get_submodule(layout.attention_path)
             out.extend(_Location(site, index, attention) for site in ATTN_SITES)
@@ -123,14 +171,16 @@ def _candidates(model: nn.Module) -> list[_Location]:
 
 def resolve(
     model: nn.Module, rules: list[QuantRule]
-) -> tuple[dict[tuple[str, int | None], tuple[int, _Location, QuantFormat]], list[SiteHit]]:
-    """Match rules against the model. Later rules override earlier ones at the same (site, layer).
+) -> tuple[dict[tuple, tuple[int, _Location, QuantFormat]], list[SiteHit]]:
+    """Match rules against the model. Later rules override earlier ones at the same location.
+
+    Keys are `(site, layer)`, or `(site, layer, expert)` for a routed-expert location.
 
     Raises SiteError when a rule matches no location on this model.
     """
     candidates = _candidates(model)
     num_layers = len(decoder_layers(model))
-    assignment: dict[tuple[str, int | None], tuple[int, _Location, QuantFormat]] = {}
+    assignment: dict[tuple, tuple[int, _Location, QuantFormat]] = {}
     hits: list[SiteHit] = []
     for index, rule in enumerate(rules):
         layer_ids = set(select_layers(rule.layers, num_layers))
@@ -146,7 +196,7 @@ def resolve(
                 f"{type(model).__name__}"
             )
         for loc in matched:
-            assignment[(loc.site, loc.layer)] = (index, loc, rule.quant)
+            assignment[loc.key] = (index, loc, rule.quant)
         hits.append(
             SiteHit(
                 rule=index,
@@ -164,7 +214,10 @@ def attach(model: nn.Module, rules: list[QuantRule]) -> Attachment:
     attachment = Attachment(model=model, hits=hits)
     attention_sites: dict[nn.Module, dict[str, QuantFormat]] = {}
     try:
-        for (site, _layer), (_rule, loc, fmt) in assignment.items():
+        for key, (_rule, loc, fmt) in assignment.items():
+            site = key[0]
+            if site == "moe.router.output":
+                raise SiteError("moe.router.output is a tuple (logits, scores, indices), not quantizable")
             if site.endswith(".weight"):
                 with torch.no_grad():
                     loc.module.weight.copy_(fake_quantize(loc.module.weight, fmt, kind="weight"))

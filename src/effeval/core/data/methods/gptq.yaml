@@ -430,6 +430,14 @@ config_schema:
         ones, as the official `--true-sequential`.
       title: True Sequential
       type: boolean
+    moe_min_tokens:
+      default: 1
+      description: A routed expert that sees fewer calibration tokens than this is
+        quantized by RTN with the same format instead of GPTQ (its Hessian would be
+        empty or rank-deficient).
+      minimum: 1
+      title: Moe Min Tokens
+      type: integer
     calibration:
       $ref: '#/$defs/Calibration'
   required:
@@ -446,6 +454,6 @@ display:
 - act_order
 default_preset: paper
 custom_presets: {}
-schema_hash: sha256:49566a775eaea511bd374a14e2c816343d65de4855d288ee474a5aba2175b2e3
+schema_hash: sha256:b2986d65e038f2fa59974a0ae514b05320f204c1ede82c61d211d956ffdc9a87
 builtin: true
 description: GPTQ weight quantization (ported from the official implementation).
