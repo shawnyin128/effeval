@@ -1,4 +1,5 @@
 name: speculative_decoding
+title: Speculative Decoding
 description: Speculative decoding with an independent draft model. Compared against autoregressive decoding of the same target on the same provider.
 modes: [generation, speed]
 reference: {decoding: null}

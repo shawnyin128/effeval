@@ -1,7 +1,7 @@
 import * as yaml from "js-yaml";
 import { ArrowLeft, ArrowRight, CircleAlert, CircleCheck, Download, FileCode2, RotateCcw, Sparkles, Terminal } from "lucide-react";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, methodTitle, type Describe, type Issue, type Rendered, type TaskRef } from "../api";
+import { api, fieldTitle, methodTitle, type Describe, type Issue, type Rendered, type TaskRef } from "../api";
 import { PaperDiff, useApp } from "../components/common";
 import { AblationSettings, deriveAblation, type AblationDraft } from "../compose/Ablation";
 import { DestinationSelect, useDestination } from "./Projects";
@@ -391,10 +391,10 @@ export function Compose() {
                   const next = selectField(describe, spec, f.name);
                   setSpec(next);
                   if (next.method !== spec.method) {
-                    toast(t("Method changed to {method}", { method: next.method.name }), { tone: "warning", description: t("{from} belongs to a different Field than {field}.", { from: spec.method.name, field: f.name }) });
+                    toast(t("Method changed to {method}", { method: next.method.name }), { tone: "warning", description: t("{from} belongs to a different Field than {field}.", { from: spec.method.name, field: f.title }) });
                   }
                 }}>
-                <span className="strong">{f.name}</span>
+                <span className="choice-title">{f.title}</span>
                 <span className="small muted">{f.description}</span>
               </button>
             ))}
@@ -404,7 +404,7 @@ export function Compose() {
       break;
     case "method":
       body = (
-        <Card title={stepTitle} hint={spec.field}>
+        <Card title={stepTitle} hint={fieldTitle(describe, spec.field)}>
           <div className="grid-2">
             <Field label={t("Method")} error={err("method.name")}>
               <Select value={spec.method?.name ?? ""} onChange={(v) => setSpec((s) => ({ ...s, method: { name: v, preset: "default", config: {} } }))}
@@ -452,7 +452,7 @@ export function Compose() {
       break;
     case "fieldConfig":
       body = (
-        <Card title={stepTitle} hint={spec.field}>
+        <Card title={stepTitle} hint={fieldTitle(describe, spec.field)}>
           {decodingField && <Decoding spec={spec} describe={describe} update={update} err={err} />}
           {decodingField && fieldConfig && <div className="divider" />}
           {fieldConfig ? (

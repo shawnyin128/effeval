@@ -215,7 +215,7 @@ export interface Describe {
   methods: Record<string, Manifest>;
   presets: Record<string, Record<string, Preset>>;
   tasks: Record<string, TaskDef>;
-  fields: Record<string, { name: string; description: string; modes: string[]; compare: string[]; roles?: { name: string; path: string }[] }>;
+  fields: Record<string, { name: string; title: string; description: string; modes: string[]; compare: string[]; roles?: { name: string; path: string }[] }>;
   evaluators: Record<string, EvaluatorDef>;
   /** Tasks pinned at the top of the task picker. */
   common_tasks: string[];
@@ -239,6 +239,10 @@ export interface Describe {
 /** A method's display name: its manifest title, else the identifier. */
 export function methodTitle(describe: Describe, name: string): string {
   return describe.methods[name]?.title || name;
+}
+
+export function fieldTitle(describe: Describe, name: string): string {
+  return describe.fields[name]?.title || name;
 }
 
 /** A record's display name: the server's label ("QuaRot + GPTQ"), else the method's title. */

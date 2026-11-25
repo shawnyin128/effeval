@@ -2,7 +2,7 @@ import * as yaml from "js-yaml";
 import { Columns3, Copy, FileText, FolderMinus, Search, Trash2, TriangleAlert, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useEffect, useMemo, useState } from "react";
-import { api, type Row } from "../api";
+import { api, fieldTitle, type Row } from "../api";
 import { ProblemMark, Uploader, useApp } from "../components/common";
 import { PublishSelected, RecordPanel } from "../components/RecordPanel";
 import { useT } from "../i18n";
@@ -95,7 +95,7 @@ export function ReportView({ rows, project, showOwners, inPool = false, onChange
         <div className="report-jump">
           {visible.map((b) => (
             <button key={b.id} className="jump" onClick={() => document.getElementById(`block-${b.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
-              <span className="mono">{b.model}</span><span className="faint">· {b.field}</span><span className="count">{b.rows.length}</span>
+              <span className="mono">{b.model}</span><span className="faint">· {fieldTitle(describe, b.field)}</span><span className="count">{b.rows.length}</span>
             </button>
           ))}
         </div>
@@ -191,7 +191,7 @@ function ReportBlock({ block: full, project, colored, showOwners, inPool, onOpen
     <section className="report-block card" id={`block-${block.id}`}>
       <header className="report-title">
         <span className="mono strong">{block.model}</span>
-        <Badge>{block.field}</Badge>
+        <Badge>{fieldTitle(describe, block.field)}</Badge>
         <span className="faint small report-summary" title={sharedSummary(block.shared, t)}>{sharedSummary(block.shared, t)}</span>
         {colored && uncompared > 0 && (
           <span className="note-tag" title={block.rows.some((r) => r.isBaseline)

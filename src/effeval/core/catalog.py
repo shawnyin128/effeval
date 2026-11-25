@@ -131,6 +131,7 @@ class ModelEntry(StrictModel):
 
 class FieldDef(StrictModel):
     name: str
+    title: str = Field(description='Display name in title case, e.g. "Speculative Decoding".')
     description: str
     modes: list[Mode]
     reference: dict[str, Any] = Field(description="RunSpec overrides that derive the reference job.")

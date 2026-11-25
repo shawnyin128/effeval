@@ -2043,3 +2043,12 @@ def test_describe_fields_list_their_model_roles(server):
         {"name": "target", "path": "model"},
         {"name": "draft", "path": "decoding.draft.model"},
     ]
+
+
+def test_describe_fields_carry_title_case_names(server):
+    _app, _admin, as_user = server
+    fields = as_user("alice").get("/api/describe").json()["fields"]
+    assert {name: f["title"] for name, f in fields.items()} == {
+        "quantization": "Quantization",
+        "speculative_decoding": "Speculative Decoding",
+    }

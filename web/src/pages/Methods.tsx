@@ -1,6 +1,6 @@
 import { Puzzle, Search, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, methodTitle, type Manifest, type PreprocessPreset, type PreprocessStep } from "../api";
+import { api, fieldTitle, methodTitle, type Manifest, type PreprocessPreset, type PreprocessStep } from "../api";
 import { useApp } from "../components/common";
 import { MethodConfig, configSections } from "../compose/MethodConfig";
 import { useT } from "../i18n";
@@ -93,7 +93,7 @@ export function Methods() {
                 <tr key={m.name} className="clickable" onClick={() => setOpen(item)}>
                   <td className="mono" style={{ fontWeight: 550 }}>{methodTitle(describe, m.name)}</td>
                   <td className="small">{m.version}</td>
-                  <td className="small">{m.field}</td>
+                  <td className="small">{fieldTitle(describe, m.field)}</td>
                   <td className="small">{sections.length ? sections.map((name) => t(name)).join(" · ") : <span className="faint">—</span>}</td>
                   <td className="small muted">{presets.length ? presets.join(", ") : "—"}</td>
                   <td className="small">{owner === "builtin" ? t("builtin") : owner} {owner !== "builtin" && <Badge>{t(visibility)}</Badge>}</td>
@@ -169,7 +169,7 @@ function MethodDetail({ item }: { item: Item }) {
       <dl className="kv">
         <dt>{t("Entry")}</dt><dd className="mono">{m.entry ?? "—"}</dd>
         <dt>{t("Version")}</dt><dd>{m.version}</dd>
-        <dt>{t("Field")}</dt><dd>{m.field}</dd>
+        <dt>{t("Field")}</dt><dd>{fieldTitle(describe, m.field)}</dd>
         <dt>{t("Architectures")}</dt><dd>{m.architectures?.join(", ") ?? t("any")}</dd>
         {m.description && <><dt>{t("Description")}</dt><dd>{m.description}</dd></>}
       </dl>

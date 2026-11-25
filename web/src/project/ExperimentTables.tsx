@@ -1,6 +1,6 @@
 import { Flag, FlagOff, FolderPlus, Globe, Pencil, Snowflake, Plus, RotateCw, Table2, Terminal, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, methodTitle, type Cell, type CellStatus, type Rendered, type Row, type Snapshot, type TableView } from "../api";
+import { api, fieldTitle, methodTitle, type Cell, type CellStatus, type Rendered, type Row, type Snapshot, type TableView } from "../api";
 import { copyPaperGrid } from "./SnapshotView";
 import { CopyMenu } from "../ui/CopyMenu";
 import { initials, useApp } from "../components/common";
@@ -195,7 +195,7 @@ function TableBlock({ project, table, snapshots, onEdit, onChanged, onOpenRecord
     <section className="card xt">
       <header className="xt-head">
         <span className="xt-title">{table.definition.name}</span>
-        <Badge>{table.definition.field}</Badge>
+        <Badge>{fieldTitle(describe, table.definition.field)}</Badge>
         <span className="xt-counts">
           {ORDER.filter((s) => table.counts[s]).map((s) => (
             <span key={s} className={`xt-count ${s}`}><span className={`xt-dot ${s}`} />{t(STATUS_LABEL[s])} {table.counts[s]}</span>

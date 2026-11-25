@@ -1,4 +1,5 @@
 name: quantization
+title: Quantization
 description: Weight/activation/attention quantization. Compared against the unquantized model.
 modes: [loglikelihood, generation, benchmark]
 reference:
