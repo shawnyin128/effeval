@@ -1,6 +1,7 @@
 import { Check, Pencil, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { Fragment, useState } from "react";
 import type { Architecture, JsonSchema, Manifest, Preset } from "../api";
+import { useApp } from "../components/common";
 import { ArchDiagram } from "./ArchDiagram";
 import { Button, Field, Input, Segmented, Select } from "../ui/controls";
 import { useT } from "../i18n";
@@ -452,6 +453,11 @@ function RulePanel({ rule, sites, graph, tied, numLayers, diagramOpen, taken, pr
 }) {
   const sitesError = problemAt(problems, `${base}.sites`) ?? problemsUnder(problems, `${base}.sites`)[0];
   const t = useT();
+  const { describe } = useApp();
+  const archName = Object.keys(describe.architectures).find((name) => describe.architectures[name].graph === graph);
+  const moeLayout = archName ? describe.architectures[archName].moe : undefined;
+  const topKs = new Set(Object.values(describe.models).filter((m) => m.architecture === archName).map((m) => m.shape?.experts_per_token));
+  const moe = moeLayout ? { experts: moeLayout.num_experts, topK: topKs.size === 1 ? [...topKs][0] : undefined } : undefined;
   const suggestions = ["linear.*.weight", "linear.*.input", "linear.attn.*.weight", "linear.mlp.*.weight", ...sites];
   const [customPicked, setCustomPicked] = useState(false);
   const [showDiagram, setShowDiagram] = useState(diagramOpen);
@@ -490,7 +496,7 @@ function RulePanel({ rule, sites, graph, tied, numLayers, diagramOpen, taken, pr
         <Field label={<>{t("Pick on the diagram")}<Help text={t("Click a weight box, an activation arrow or the KV cache to add or remove it from this rule. The shortcuts above select common sets.")} /></>}>
           {showDiagram ? (
             <>
-              <ArchDiagram graph={graph} mode="targets" tied={tied} numLayers={numLayers} disabled={unavailable}
+              <ArchDiagram graph={graph} mode="targets" tied={tied} numLayers={numLayers} moe={moe} disabled={unavailable}
                 value={selectedSites(rule.sites, diagramAll)}
                 onChange={(next) => onChange({ ...rule, sites: compressSites(new Set(next), diagramAll, rule.sites) })} />
               <div><Button size="sm" variant="link" onClick={() => setShowDiagram(false)}>{t("Hide diagram")}</Button></div>

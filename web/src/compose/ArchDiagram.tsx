@@ -6,7 +6,7 @@ import { useT } from "../i18n";
 import { Input, Segmented } from "../ui/controls";
 import { withKvCache } from "./kvCache";
 
-export type NodeKind = "residual" | "norm" | "linear" | "rope" | "matmul" | "softmax" | "add" | "act" | "mul" | "cache";
+export type NodeKind = "residual" | "norm" | "linear" | "rope" | "matmul" | "softmax" | "add" | "act" | "mul" | "cache" | "route";
 
 export interface GraphNode {
   id: string;
@@ -18,6 +18,10 @@ export interface GraphNode {
   axis?: "hidden" | "head_dim" | null;
   fn?: string | null;
   out_site?: string | null;
+  /** MoE: decoder layers that have this node (None = all). */
+  layers?: unknown;
+  /** MoE: `module` has a `*` for the routed expert index; the node stands for every expert. */
+  experts?: boolean | null;
 }
 
 export interface GraphGlobals {
@@ -92,6 +96,8 @@ export interface ArchDiagramProps {
   disabled?: Record<string, string>;
   numLayers?: number;
   tied?: boolean;
+  /** MoE models: routed experts per block and how many each token uses; labels the expert block. */
+  moe?: { experts: number; topK?: number };
 }
 
 interface Item {
@@ -135,8 +141,19 @@ const CACHE_NUDGE = 30;
 /** Distance from the layer output to the lm_head chip: box margin, final norm chip, gaps. */
 const HEAD_OFFSET = 24 + 62 + 80;
 
+/** Offset of each of the two shadow copies drawn behind an expert node, and the margin of the frame around them. */
+const STACK = 3;
+const FRAME_PAD = 5;
+
 const NORM_LABEL = { rms: "RMS", layer: "LN" } as const;
 const ACT_LABEL: Record<string, string> = { silu: "SiLU", gelu: "GELU", relu: "ReLU", swish: "Swish" };
+
+const isRouter = (n: GraphNode) => n.kind === "linear" && !!n.canon && n.canon.endsWith(".router");
+
+/** Quantization site of a linear node's tensor: the router has its own `moe.router.*` family, others `linear.<canon>.*`. */
+function linearSite(n: GraphNode, tensor: "weight" | "input"): string {
+  return isRouter(n) ? `moe.router.${tensor}` : `linear.${n.canon}.${tensor}`;
+}
 
 function weightSub(canon: string): string {
   const name = canon.split(".").pop() ?? canon;
@@ -146,7 +163,7 @@ function weightSub(canon: string): string {
 
 function nodeSize(n: GraphNode): { w: number; h: number } {
   if (n.kind === "linear") return { w: 56, h: H };
-  if (n.kind === "matmul" || n.kind === "mul" || n.kind === "add") return { w: CIRCLE, h: CIRCLE };
+  if (n.kind === "matmul" || n.kind === "mul" || n.kind === "add" || n.kind === "route") return { w: CIRCLE, h: CIRCLE };
   if (n.kind === "softmax") return { w: 62, h: 24 };
   if (n.kind === "cache") return { w: 62, h: 30 };
   if (n.kind === "residual") return { w: 28, h: 24 };
@@ -317,12 +334,13 @@ export function computeGeometry(graph: LayerGraph): Geometry {
   };
 }
 
-function linearInputId(dst: Placed): string | null {
-  return dst.node.kind === "linear" && dst.node.canon ? `linear.${dst.node.canon}.input` : null;
+function linearInputId(dst: Placed, posMode: boolean): string | null {
+  if (dst.node.kind !== "linear" || !dst.node.canon) return null;
+  return posMode ? `linear.${dst.node.canon}.input` : linearSite(dst.node, "input");
 }
 
 function describeId(id: string): string {
-  return id.replace(/^linear\./, "").replace(/\./g, " ").replace(/_/g, " ");
+  return id.replace(/^(linear|moe)\./, "").replace(/\./g, " ").replace(/_/g, " ");
 }
 
 /** The selectable points of the diagram for the current mode. */
@@ -363,7 +381,7 @@ export function buildItems(
       push(`norm.${p.node.module}.out`, `${p.node.module} ${t("output")}`, p.x + p.w / 2 + 14, p.y);
     }
     if (p.node.kind === "linear" && p.node.canon && !posMode) {
-      const site = `linear.${p.node.canon}.weight`;
+      const site = linearSite(p.node, "weight");
       add({
         id: site,
         label: `${weightSub(p.node.canon)} ${t("weight")}`,
@@ -402,7 +420,7 @@ export function buildItems(
     const mid = curvePoint(x1, y1, x2, y2, 0.5);
     if (e.site === "attn.q") qEdge = { x1, y1, x2, y2 };
     if (e.site === "attn.k") kMid = mid;
-    const li = linearInputId(e.dst);
+    const li = linearInputId(e.dst, posMode);
     if (li) push(li, describeId(li), x2 - 14, y2);
     if (posMode) {
       if (hasVHead && e.site === "attn.v") push("attn.v_head", t("v_proj output per head"), mid.x, mid.y, { tag: t("v head") });
@@ -526,7 +544,8 @@ function NodeLabel({ n, globals }: { n: GraphNode; globals: GraphGlobals | null 
     );
   }
   const text =
-    n.kind === "matmul" || n.kind === "mul" ? "⊗"
+    n.kind === "route" ? "Σ"
+    : n.kind === "matmul" || n.kind === "mul" ? "⊗"
     : n.kind === "add" ? "⊕"
     : n.kind === "softmax" ? "Softmax"
     : n.kind === "rope" ? "RoPE"
@@ -534,7 +553,7 @@ function NodeLabel({ n, globals }: { n: GraphNode; globals: GraphGlobals | null 
     : n.kind === "act" ? ACT_LABEL[n.fn ?? ""] ?? n.fn ?? "act"
     : n.kind === "norm" ? (NORM_LABEL[globals?.norm_kind ?? "rms"] + (n.axis === "head_dim" ? "·d" : ""))
     : "X";
-  const big = n.kind === "matmul" || n.kind === "mul" || n.kind === "add";
+  const big = n.kind === "matmul" || n.kind === "mul" || n.kind === "add" || n.kind === "route";
   return (
     <text className={big ? "arch-text arch-op" : "arch-text"} textAnchor="middle" dominantBaseline="central">
       {text}
@@ -549,7 +568,7 @@ function nodeTitle(n: GraphNode, t: (s: string) => string): string {
 }
 
 export function ArchDiagram(props: ArchDiagramProps) {
-  const { graph, mode, value = [], onChange, onPoint, popover, numLayers, tied } = props;
+  const { graph, mode, value = [], onChange, onPoint, popover, numLayers, tied, moe } = props;
   const t = useT();
   const markerId = useId();
   const shown = useMemo(() => withKvCache(graph), [graph]);
@@ -610,6 +629,13 @@ export function ArchDiagram(props: ArchDiagramProps) {
   const ox = PAD + left;
   const oy = -boxTop + PAD;
   const embX = -(first.w / 2) - 36 - chipW / 2;
+  const expertNodes = geo.placed.filter((p) => p.node.experts);
+  const expertFrame = expertNodes.length === 0 ? null : {
+    x1: Math.min(...expertNodes.map((p) => p.x - p.w / 2)) - FRAME_PAD,
+    y1: Math.min(...expertNodes.map((p) => p.y - p.h / 2)) - FRAME_PAD - STACK * 2,
+    x2: Math.max(...expertNodes.map((p) => p.x + p.w / 2)) + FRAME_PAD + STACK * 2,
+    y2: Math.max(...expertNodes.map((p) => p.y + p.h / 2)) + FRAME_PAD,
+  };
 
   const itemEl = (item: Item) => {
     const on = selected.has(item.id);
@@ -707,6 +733,16 @@ export function ArchDiagram(props: ArchDiagramProps) {
               <text className="arch-layer-label" x={-(first.w / 2) - 6} y={boxBottom - 8}>{t("Decoder layer × {n}", { n: numLayers })}</text>
             )}
 
+            {expertFrame && (
+              <g className="arch-experts">
+                <rect x={expertFrame.x1} y={expertFrame.y1} width={expertFrame.x2 - expertFrame.x1} height={expertFrame.y2 - expertFrame.y1} rx={8}
+                  fill="none" stroke="currentColor" strokeOpacity={0.4} strokeDasharray="5 4" />
+                <text x={expertFrame.x1 + 6} y={expertFrame.y2 + 11} fontSize={10} fill="currentColor" fillOpacity={0.7}>
+                  {!moe ? t("routed experts") : moe.topK === undefined ? t("{n} experts", { n: moe.experts }) : t("{n} experts, top-{k}", { n: moe.experts, k: moe.topK })}
+                </text>
+              </g>
+            )}
+
             {geo.edges.map((e, i) => {
               const x1 = e.src.x + e.src.w / 2;
               const x2 = e.dst.x - e.dst.w / 2;
@@ -720,7 +756,8 @@ export function ArchDiagram(props: ArchDiagramProps) {
                 const d = `M${x1},${e.src.y} H${x1 + 14} V${geo.crossY} H${-14} V${e.dst.y} H${x2}`;
                 return <path key={i} className="arch-edge" d={d} markerEnd={`url(#${markerId})`} />;
               }
-              return <path key={i} className="arch-edge" d={curve(x1, e.src.y + e.offset, x2, e.dst.y + e.offset)} markerEnd={`url(#${markerId})`} />;
+              const gate = isRouter(e.src.node) && e.dst.node.kind === "route";
+              return <path key={i} className="arch-edge" strokeDasharray={gate ? "4 3" : undefined} d={curve(x1, e.src.y + e.offset, x2, e.dst.y + e.offset)} markerEnd={`url(#${markerId})`} />;
             })}
 
             {g && (
@@ -750,11 +787,16 @@ export function ArchDiagram(props: ArchDiagramProps) {
 
             {geo.placed.map((p) => {
               const n = p.node;
-              const round = n.kind === "matmul" || n.kind === "mul" || n.kind === "add";
+              const round = n.kind === "matmul" || n.kind === "mul" || n.kind === "add" || n.kind === "route";
               return (
-                <g key={n.id} className={`arch-node arch-k-${n.kind}`} transform={`translate(${p.x},${p.y})`}
+                <g key={n.id} className={`arch-node arch-k-${n.kind}${n.kind === "route" ? " arch-k-mul" : ""}`} transform={`translate(${p.x},${p.y})`}
                   onMouseEnter={(e) => mode === "positions" || n.kind !== "linear" ? showTip(e.currentTarget, { id: n.id, label: nodeTitle(n, t), x: 0, y: 0, shape: "dot" }) : undefined}
                   onMouseLeave={() => setTip(null)}>
+                  {n.experts && [STACK * 2, STACK].map((d) => (
+                    <g key={d} transform={`translate(${d},${-d})`}>
+                      {round ? <circle r={p.w / 2} /> : <rect x={-p.w / 2} y={-p.h / 2} width={p.w} height={p.h} rx={n.kind === "linear" ? 6 : 12} />}
+                    </g>
+                  ))}
                   {round ? <circle r={p.w / 2} /> : n.kind === "cache" ? <path d={cylinderPath(p.w, p.h)} /> : <rect x={-p.w / 2} y={-p.h / 2} width={p.w} height={p.h} rx={n.kind === "linear" ? 6 : 12} />}
                   {mode === "positions" || (n.kind !== "linear" && n.kind !== "cache") ? <NodeLabel n={n} globals={g} /> : null}
                 </g>

@@ -146,6 +146,9 @@ class NativeTaskDef(StrictModel):
     text_column: str
     joiner: str
     use_fast_tokenizer: bool
+    data_files: str | None = None
+    max_documents: int | None = Field(default=None, ge=1)
+    max_tokens: int | None = Field(default=None, ge=1)
 
 
 SampleCount = int | float

@@ -82,12 +82,21 @@ def test_dense_layout_and_graph_serialize_exactly_as_the_stored_yaml():
     assert not any(site.startswith(("moe.", "linear.mlp.experts")) for site in layout.site_names())
 
 
+MOE_SHAPE_KEYS = {"num_experts", "experts_per_token", "moe_intermediate", "shared_intermediate"}
+
+
 def test_dense_model_shapes_serialize_without_moe_keys():
-    for entry in builtin_catalog().models.values():
-        assert entry.shape is None or not (
-            {"num_experts", "experts_per_token", "moe_intermediate", "shared_intermediate"}
-            & entry.shape.model_dump().keys()
-        )
+    dense = [e for e in builtin_catalog().models.values() if e.architecture != "Qwen3MoeForCausalLM"]
+    assert dense
+    for entry in dense:
+        assert entry.shape is None or not (MOE_SHAPE_KEYS & entry.shape.model_dump().keys())
+
+
+def test_moe_model_shapes_serialize_their_moe_keys():
+    moe = [e for e in builtin_catalog().models.values() if e.architecture == "Qwen3MoeForCausalLM"]
+    assert [e.code for e in moe] == ["qwen3-30b-a3b"]
+    dumped = moe[0].shape.model_dump()
+    assert (dumped["num_experts"], dumped["experts_per_token"], dumped["moe_intermediate"]) == (128, 8, 768)
 
 
 def test_stored_moe_layout_round_trips():

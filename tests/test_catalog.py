@@ -65,7 +65,12 @@ def test_metric_registry_covers_derived_metrics_and_task_categories():
 
 def test_builtin_tasks_are_discovered_without_a_snapshot():
     native = {n for n, t in BUILTIN.tasks.items() if t.evaluator in {"native", "kernel"}}
-    assert native == {"native/wikitext2_ppl", "kernel/gemm_w4a16"}
+    assert native == {
+        "native/wikitext2_ppl",
+        "native/wikitext2_preprocessed_ppl",
+        "native/c4_ppl",
+        "kernel/gemm_w4a16",
+    }
     assert {"native", "kernel"} <= set(BUILTIN.evaluators)
     schema = BUILTIN.tasks["native/wikitext2_ppl"].params_schema["properties"]
     assert (schema["limit"]["default"], schema["seqlen"]["default"]) == (-1, 2048)

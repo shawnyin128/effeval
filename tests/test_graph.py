@@ -163,7 +163,14 @@ def test_shipped_qwen3_graph_equals_the_fixture_and_models_carry_shapes():
 
 def test_shipped_models_carry_their_decoder_depth():
     depth = {
-        "qwen3-0.6b": 28, "qwen3-1.7b": 28, "qwen3-4b": 36, "qwen3-8b": 36, "qwen3-14b": 40, "qwen3-32b": 64,
+        "qwen3-0.6b": 28,
+        "qwen3-1.7b": 28,
+        "qwen3-4b": 36,
+        "qwen3-4b-thinking-2507": 36,
+        "qwen3-8b": 36,
+        "qwen3-14b": 40,
+        "qwen3-32b": 64,
+        "qwen3-30b-a3b": 48,
     }
     models = builtin_catalog().models
     assert {code: models[code].shape.num_layers for code in depth} == depth

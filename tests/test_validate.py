@@ -547,28 +547,12 @@ def test_paroquant_with_an_explicit_preset_and_a_preprocess_validates(preprocess
     assert codes(issues) == []
 
 
-def _moe_sized_catalog():
-    from effeval.core.catalog import ModelEntry
-
-    big = ModelEntry(
-        code="qwen3-30b-a3b",
-        checkpoint="Qwen/Qwen3-30B-A3B",
-        revision="a" * 40,
-        architecture="Qwen3ForCausalLM",
-        dtype="bfloat16",
-        params=30_532_122_624,
-        tie_word_embeddings=False,
-    )
-    return CATALOG.with_models([big])
-
-
 def test_a_model_too_big_for_the_gpus_asks_for_hardware_count():
-    catalog = _moe_sized_catalog()
-    one = validate(spec(model="qwen3-30b-a3b"), catalog)
+    one = validate(spec(model="qwen3-30b-a3b"), CATALOG)
     assert "hardware.too_small" in codes(one)
     issue = next(i for i in one if i.code == "hardware.too_small")
     assert issue.paths == ["hardware.count"] and "hardware.count" in issue.hint
-    two = validate(spec(model="qwen3-30b-a3b", hardware={"count": 2}), catalog)
+    two = validate(spec(model="qwen3-30b-a3b", hardware={"count": 2}), CATALOG)
     assert "hardware.too_small" not in codes(two)
     assert "hardware.too_small" not in codes(validate(spec(), CATALOG))
 

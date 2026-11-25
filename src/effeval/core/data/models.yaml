@@ -187,3 +187,40 @@ models:
     vocab: 151936
     tie_word_embeddings: false
   description: ''
+- code: qwen3-30b-a3b
+  checkpoint: Qwen/Qwen3-30B-A3B
+  revision: ad44e777bcd18fa416d9da3bd8f70d33ebb85d39
+  architecture: Qwen3MoeForCausalLM
+  dtype: bfloat16
+  params: 30532122624
+  tie_word_embeddings: false
+  shape:
+    hidden: 2048
+    intermediate: 6144
+    num_layers: 48
+    heads: 32
+    kv_heads: 4
+    head_dim: 128
+    vocab: 151936
+    tie_word_embeddings: false
+    num_experts: 128
+    experts_per_token: 8
+    moe_intermediate: 768
+  description: ''
+- code: qwen3-4b-thinking-2507
+  checkpoint: Qwen/Qwen3-4B-Thinking-2507
+  revision: 768f209d9ea81521153ed38c47d515654e938aea
+  architecture: Qwen3ForCausalLM
+  dtype: bfloat16
+  params: 4022468096
+  tie_word_embeddings: true
+  shape:
+    hidden: 2560
+    intermediate: 9728
+    num_layers: 36
+    heads: 32
+    kv_heads: 8
+    head_dim: 128
+    vocab: 151936
+    tie_word_embeddings: true
+  description: ''

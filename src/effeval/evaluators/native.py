@@ -39,9 +39,14 @@ def _run(handle: InProcess, job: JobSpec, task: TaskDef) -> QualityResult:
     tokenizer = AutoTokenizer.from_pretrained(
         job.model.checkpoint, revision=job.model.revision, use_fast=native.use_fast_tokenizer
     )
-    data = load_dataset(native.dataset, native.dataset_config, split=native.split)
+    data_files = {native.split: native.data_files} if native.data_files else None
+    data = load_dataset(native.dataset, native.dataset_config, data_files=data_files, split=native.split)
+    if native.max_documents is not None:
+        data = data.select(range(min(native.max_documents, len(data))))
     ids = tokenizer(native.joiner.join(data[native.text_column]), return_tensors="pt").input_ids  # [1, N]
     seqlen = task.settings(job.task.params).seqlen
+    if native.max_tokens is not None:
+        ids = ids[:, : native.max_tokens]
     nsamples = ids.numel() // seqlen
     nsamples = sample_count(job.task.limit, nsamples)
     device = handle.model.get_input_embeddings().weight.device
@@ -69,6 +74,15 @@ def _run(handle: InProcess, job: JobSpec, task: TaskDef) -> QualityResult:
             "windows": nsamples,
             "tokens": int(ids.numel()),
             "use_fast_tokenizer": native.use_fast_tokenizer,
+            **{
+                key: value
+                for key, value in (
+                    ("data_files", native.data_files),
+                    ("max_documents", native.max_documents),
+                    ("max_tokens", native.max_tokens),
+                )
+                if value is not None
+            },
         },
         produces=frozenset({Artifact.PER_SAMPLE}),
     )

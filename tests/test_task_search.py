@@ -34,7 +34,8 @@ def catalog(*tasks):
 def test_ppl_finds_perplexity_tasks_first_not_words_that_merely_contain_it(snapshot):
     tasks, titles = snapshot
     ranked = search_tasks(tasks, "ppl", titles)
-    assert ranked[:2] == ["native/wikitext2_ppl", "lm_eval/wikitext"]
+    assert set(ranked[:3]) == {"native/c4_ppl", "native/wikitext2_ppl", "native/wikitext2_preprocessed_ppl"}
+    assert ranked[3] == "lm_eval/wikitext"
     assert not [n for n in ranked[:10] if "blimp" in n or "include" in n]
     by_word = [n for n in ranked if {"ppl", "perplexity"} & set(re.split(r"[^a-z0-9]+", n.lower()))]
     substring_only = ranked.index("lm_eval/include_base_44_azerbaijani_applied_science")

@@ -577,6 +577,7 @@ export function Preprocess({ value, onChange, modelCode, problems, method, onPic
   const sources = describe.preprocess_sources ?? {};
   const model = describe.models[modelCode];
   const graph = model ? describe.architectures[model.architecture]?.graph ?? null : null;
+  const moeLayout = model ? describe.architectures[model.architecture]?.moe : undefined;
   const table = model?.positions ?? null;
   const steps = effectiveSteps(value, describe);
   const preset = value?.preset ? presets[value.preset] : undefined;
@@ -728,7 +729,8 @@ export function Preprocess({ value, onChange, modelCode, problems, method, onPic
           <Field label={<>{t("Where to apply")}<Help text={t("Click a point to apply Rotation or Scaling there. Blue is Rotation, green is Scaling; the pills show offline (outlined) or online (filled). Greyed points cannot be used for this model; hover for the reason.")} /></>}>
             <ArchDiagram graph={graph!} mode="positions" positions={table!} points={states} onPoint={onPoint}
               popover={chooserContent ? { content: chooserContent, onDismiss: () => setChooser(null) } : undefined}
-              numLayers={model?.shape?.num_layers} tied={tied} />
+              numLayers={model?.shape?.num_layers} tied={tied}
+              moe={moeLayout ? { experts: moeLayout.num_experts, topK: model?.shape?.experts_per_token } : undefined} />
           </Field>
 
           {steps.length > 0 && (

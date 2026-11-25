@@ -127,6 +127,11 @@ export interface ModelShape {
   head_dim: number;
   vocab: number;
   tie_word_embeddings: boolean;
+  /** MoE only. */
+  num_experts?: number;
+  experts_per_token?: number;
+  moe_intermediate?: number;
+  shared_intermediate?: number;
 }
 
 export interface Architecture {
@@ -139,6 +144,8 @@ export interface Architecture {
   extracted_with: Record<string, string>;
   sites: string[];
   graph?: LayerGraph | null;
+  /** Present for MoE architectures. */
+  moe?: { block: string; router: string; experts: string; expert_linears: string[]; shared: string | null; num_experts: number; layers: number[] };
 }
 
 /** One position a preprocessing step acts on, with how (offline / online) and where its matrix or scale comes from. */

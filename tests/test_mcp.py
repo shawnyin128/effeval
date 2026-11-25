@@ -205,7 +205,11 @@ def test_search_tasks_filters_by_category_and_mode(mcp):
 def test_search_tasks_ranks_aliases_and_words_and_combines_with_filters(mcp):
     call, *_ = mcp
     ppl = search(call, query="ppl")
-    assert ppl["tasks"][0]["name"] == "native/wikitext2_ppl"
+    assert {t["name"] for t in ppl["tasks"][:3]} == {
+        "native/c4_ppl",
+        "native/wikitext2_ppl",
+        "native/wikitext2_preprocessed_ppl",
+    }
     assert "lm_eval/wikitext" in [t["name"] for t in ppl["tasks"]]
     assert search(call, query="ppl", evaluator="evalscope")["total"] == 0
     in_math = search(call, query="gsm8k", category="math", mode="generation")

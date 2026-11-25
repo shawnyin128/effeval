@@ -96,4 +96,4 @@ def test_sync_uploads_each_listing_once(monkeypatch):
 def test_task_list_filters_by_evaluator(capsys):
     assert main(["task", "list", "--evaluator", "native"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("native/wikitext2_ppl") and "kernel/" not in out
+    assert out.startswith("native/c4_ppl") and "native/wikitext2_ppl" in out and "kernel/" not in out
