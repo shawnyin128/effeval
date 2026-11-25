@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import gc
+import weakref
+
 import pytest
 import torch
 from torch import nn
@@ -125,6 +128,23 @@ def test_unfusing_is_idempotent():
     model = build("qwen3_moe", torch.float32)
     assert moe.unfuse_experts(model) == LAYERS
     assert moe.unfuse_experts(model) == 0
+
+
+def test_unfusing_frees_fused_modules_held_by_accelerate_hooks():
+    from accelerate.hooks import ModelHook, add_hook_to_module
+
+    model = build("qwen3_moe", torch.float32)
+    fused = [layer.mlp.experts for layer in model.model.layers]
+    for module in fused:
+        add_hook_to_module(module, ModelHook())
+    refs = [weakref.ref(module) for module in fused]
+    del fused, module
+    gc.disable()
+    try:
+        moe.unfuse_experts(model)
+        assert [ref() for ref in refs] == [None] * LAYERS
+    finally:
+        gc.enable()
 
 
 def resolved(path, architecture, dtype):

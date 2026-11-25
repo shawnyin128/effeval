@@ -12,6 +12,8 @@ Fused classes handled (installed transformers 5.23, eager forward at the given l
 
 from __future__ import annotations
 
+import gc
+
 import torch
 from torch import nn
 
@@ -98,6 +100,8 @@ def unfuse_experts(model: nn.Module) -> int:
     names = [name for name, m in model.named_modules() if type(m).__name__ in FUSED_EXPERTS]
     for name in names:
         _replace(model, name)
+        # Accelerate's device hooks leave the replaced module in a reference cycle; free its weights now.
+        gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
     return len(names)
