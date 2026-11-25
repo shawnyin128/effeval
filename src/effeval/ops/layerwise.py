@@ -138,7 +138,8 @@ def optimize_layer(
     every group's lr to lr/20 over all steps; float16 autocast with loss scaling on CUDA, float32 on CPU.
     The validation loss is evaluated before training and after every epoch; the layer's state at the lowest
     validation loss (the initial state if none improves) is loaded at the end. `post_step(layer)` runs after
-    every optimizer step.
+    every optimizer step. Gradients are enabled for the training forward and backward whatever the caller's
+    grad mode (a `torch.no_grad` caller is fine; `torch.inference_mode` is not supported).
     """
     train_in, train_out = train
     val_in, val_out = val
@@ -167,9 +168,10 @@ def optimize_layer(
     for _ in range(epochs):
         for inp, target in zip(train_in, train_out, strict=True):
             optimizer.zero_grad()
-            with torch.autocast(device_type, enabled=cuda):
-                value = criterion(target, _layer_output(layer, inp, kwargs))
-            scaler.scale(value).backward()
+            with torch.enable_grad():
+                with torch.autocast(device_type, enabled=cuda):
+                    value = criterion(target, _layer_output(layer, inp, kwargs))
+                scaler.scale(value).backward()
             scaler.step(optimizer)
             scaler.update()
             result.step_losses.append(value.item())
