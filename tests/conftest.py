@@ -6,6 +6,15 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 
 
+@pytest.fixture(autouse=True)
+def _isolated_artifact_cache(tmp_path, monkeypatch):
+    """Point the artifact cache at a per-test directory and reset the process-wide instance."""
+    from effeval.ops import artifacts
+
+    monkeypatch.setenv(artifacts.CACHE_ENV, str(tmp_path / "artifact-cache"))
+    monkeypatch.setattr(artifacts, "_default", None)
+
+
 def _randomize_norm_gains(model, seed: int) -> None:
     """Give every RMSNorm gain a distinct value so that gain folding is observable."""
     import torch

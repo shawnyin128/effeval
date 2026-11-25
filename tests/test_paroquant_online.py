@@ -118,3 +118,16 @@ def test_the_layer_cache_key_changes_with_the_code_version(monkeypatch):
     assert key == pq._layer_key(base_key, 0, config)
     monkeypatch.setattr(pq, "CODE_VERSION", pq.CODE_VERSION + 1)
     assert pq._layer_key(base_key, 0, config) != key
+
+
+def test_the_layer_artifacts_persist_to_disk_and_restore_the_same_weights(tmp_path):
+    samples, val_samples = token_batches()
+    first, second = tiny_model(), tiny_model()
+    trained = ArtifactCache(tmp_path)
+    pq.quantize_model(first, samples, val_samples, small_config(), cache=trained)
+    assert len(list(tmp_path.glob("*.safetensors"))) == 2
+    restored = ArtifactCache(tmp_path)
+    pq.quantize_model(second, samples, val_samples, small_config(), cache=restored)
+    assert (restored.computed, restored.disk_hits) == (0, 2)
+    for name, value in first.state_dict().items():
+        assert torch.equal(second.state_dict()[name], value), name

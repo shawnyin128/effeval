@@ -78,7 +78,7 @@ class ArtifactCache:
         if path is not None:
             self.directory.mkdir(parents=True, exist_ok=True)
             partial = path.with_suffix(".partial")
-            save_file({name: t.detach().cpu().contiguous() for name, t in tensors.items()}, partial)
+            save_file({name: t.detach().cpu().clone().contiguous() for name, t in tensors.items()}, partial)
             partial.replace(path)
         return tensors
 
