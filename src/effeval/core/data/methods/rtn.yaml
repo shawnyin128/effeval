@@ -57,6 +57,48 @@ config_schema:
       - type
       title: ClipSearch
       type: object
+    CodebookFormat:
+      additionalProperties: false
+      description: 'Weights only: each unit (a row, or group_size consecutive values
+        of a row) keeps `centroids` values
+
+        fitted by k-means, and every element is replaced by the nearest centroid of
+        its unit.'
+      properties:
+        type:
+          const: codebook
+          title: Type
+          type: string
+        centroids:
+          description: Codebook entries per unit.
+          maximum: 256
+          minimum: 1
+          title: Centroids
+          type: integer
+        granularity:
+          description: 'Unit: per_channel one codebook per output row, per_group one
+            per group_size values.'
+          enum:
+          - per_channel
+          - per_group
+          title: Granularity
+          type: string
+        group_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Values per codebook when granularity is per_group.
+          title: Group Size
+        kmeans:
+          $ref: '#/$defs/KMeansConfig'
+      required:
+      - type
+      - centroids
+      - granularity
+      title: CodebookFormat
+      type: object
     FpFormat:
       additionalProperties: false
       description: 'Low-precision float `eXmY` with a float32 scale `absmax / max_representable`
@@ -246,6 +288,38 @@ config_schema:
       - granularity
       title: IntFormat
       type: object
+    KMeansConfig:
+      additionalProperties: false
+      description: Lloyd iterations of a codebook fit, started from k-means++ draws
+        of a generator seeded with `seed`.
+      properties:
+        iters:
+          default: 300
+          description: Maximum Lloyd iterations.
+          minimum: 0
+          title: Iters
+          type: integer
+        tol:
+          default: 1.0e-06
+          description: Stop once no centroid moves by more than this (absolute).
+          minimum: 0.0
+          title: Tol
+          type: number
+        seed:
+          default: 42
+          description: Seed of the k-means++ generator, created afresh per matrix.
+          title: Seed
+          type: integer
+        compute_dtype:
+          default: weight
+          description: 'Dtype the fit runs in: the weight''s own dtype or float32.'
+          enum:
+          - weight
+          - float32
+          title: Compute Dtype
+          type: string
+      title: KMeansConfig
+      type: object
     MxFormat:
       additionalProperties: false
       description: 'Block-scaled format along the last dimension.
@@ -313,6 +387,7 @@ config_schema:
         quant:
           discriminator:
             mapping:
+              codebook: '#/$defs/CodebookFormat'
               fp: '#/$defs/FpFormat'
               int: '#/$defs/IntFormat'
               mx: '#/$defs/MxFormat'
@@ -321,6 +396,7 @@ config_schema:
           - $ref: '#/$defs/IntFormat'
           - $ref: '#/$defs/FpFormat'
           - $ref: '#/$defs/MxFormat'
+          - $ref: '#/$defs/CodebookFormat'
           title: Quant
       required:
       - sites
@@ -343,7 +419,7 @@ display:
 - rules
 default_preset: gptq_paper
 custom_presets: {}
-schema_hash: sha256:5d281901bc91f892fb0a166ed56a43d4f0679d91ae22a95596b612d0803351ef
+schema_hash: sha256:b84f890405e8c5ef808a991c9379ec5bf0d74db7bc159e3f1e4625e932b12266
 builtin: true
 description: Round-to-nearest on arbitrary sites; the GPTQ paper's RTN baseline is
   the default preset.

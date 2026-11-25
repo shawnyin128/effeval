@@ -1707,7 +1707,9 @@ def test_describe_lists_architecture_graph_position_tables_and_preprocess_preset
     assert quarot["quantizers"]["gptq"] == ["quarot_w4a16", "quarot_w4a4kv4"]
 
     sources = described["preprocess_sources"]
-    assert sources["rotation"]["trained"]["implemented"] is False
+    assert sources["rotation"]["trained"]["implemented"] is True
+    assert sources["rotation"]["trained"]["version"] == "1"
+    assert sources["scaling"]["trained"]["implemented"] is True
     assert sources["rotation"]["hadamard"]["implemented"] is True
     assert (
         sources["scaling"]["awq"]["needs_data"] is True

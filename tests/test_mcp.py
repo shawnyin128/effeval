@@ -280,7 +280,8 @@ def test_describe_lists_preprocess_compactly_and_get_architecture_gives_graph_an
     assert {"position": "residual", "mode": "offline", "source": "random_hadamard"} in quarot["steps"][0][
         "entries"
     ]
-    assert brief["preprocess_sources"]["rotation"]["trained"]["implemented"] is False
+    assert brief["preprocess_sources"]["rotation"]["trained"]["implemented"] is True
+    assert brief["preprocess_sources"]["rotation"]["trained"]["version"] == "1"
     assert brief["preprocess_sources"]["scaling"]["awq"]["options"]["n_grid"] == 20
     assert "schema" not in brief["preprocess_sources"]["scaling"]["awq"]
     smooth = brief["preprocess_sources"]["scaling"]["smoothattention"]

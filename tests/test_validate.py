@@ -359,11 +359,16 @@ def test_scaling_not_folded_into_a_norm_gain_has_no_order_constraint(
     assert "preprocess.order" not in codes(validate(pre_spec(steps, model="qwen3-0.6b-base"), CATALOG))
 
 
-def test_reserved_source_types_are_rejected_as_not_implemented(positions):
-    steps = [rotation(source={"type": "trained"})]
-    issue = error_of(validate(pre_spec(steps), CATALOG), "preprocess.source_unimplemented")
-    assert issue.paths == ["preprocess.steps[0].entries[0].source.type"]
-    assert "not implemented yet" in issue.message
+def test_a_trained_rotation_is_rejected_off_the_offline_residual(positions):
+    trained = {
+        "type": "trained",
+        "lr": 1e-4,
+        "calibration": {"dataset": "d", "n_samples": 8, "batch_size": 2, "max_length": 8, "epochs": 1},
+    }
+    steps = [rotation("linear.mlp.down_proj.input", "online", source=trained)]
+    res = resolve(pre_spec(steps), CATALOG)
+    assert not res.ok
+    assert "residual position, offline, only" in " ".join(i.message for i in res.issues)
 
 
 def test_a_data_driven_source_needs_calibration(positions):

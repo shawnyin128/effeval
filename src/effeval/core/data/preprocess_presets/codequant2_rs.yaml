@@ -1,0 +1,66 @@
+name: codequant2_rs
+title: CodeQuant2 rotation and scaling
+description: CodeQuant2's rotation and scaling for dense reasoning models, a residual rotation R1 trained as in CodeQuant (lr 1e-3, 8 epochs, 512-token sequences) followed by one trained scaling vector per RMSNorm output (input_layernorm and post_attention_layernorm of every layer), both minimising the 4-bit per-token activation quantization error.
+paper: {title: "CodeQuant2: Enhanced Outlier Mitigation and Adaptive Clustering for Low-Precision LRMs", arxiv: "2611.09868", official_repo: "https://github.com/SAI-Lab-NYU/CodeQuant2@eaf112cb"}
+# Calibration deviation, intended until the reasoning-aware mixture is available as a calibration fragment: the
+# official set mixes WikiText rows with 256-token reasoning traces the full-precision model generated for GSM8K
+# problems (wiki_ratio 0.9, random.Random(42) draws); this preset trains on the first 512 WikiText rows alone (the
+# wiki_ratio 1.0 setting, whose rows the official draws at random instead of taking the first) as raw text.
+# Other deviations: the scaling vectors start from a seeded generator (official: the global RNG); losses are computed on
+# the folded and rotated model (official: the unrotated model with R applied in float32 in the hook); the two scaling
+# entries train in one pass with one Adam each, as the official scaling stage does.
+quantizers:
+  codequant2: [paper_a4w4_4b, paper_a4w4_8b]
+values:
+  preprocess.steps:
+    value:
+      - kind: rotation
+        entries:
+          - position: residual
+            layers: all
+            mode: offline
+            source:
+              type: trained
+              objective: act_quant_mse
+              act: {type: int, bits: 4, symmetric: false, granularity: per_token, zero_point: float}
+              optimizer: adam
+              lr: 0.001
+              init_seed: 42
+              calibration:
+                dataset: Self-GRIT/wikitext-2-raw-v1-preprocessed
+                split: train
+                n_samples: 512
+                batch_size: 16
+                max_length: 512
+                epochs: 8
+                shuffle_seed: 42
+                chat_template: false
+                padding: max_length
+            options: {untie_embeddings: true}
+      - kind: scaling
+        entries:
+          - position: norm.input_layernorm.out
+            layers: all
+            mode: offline
+            source: &scaling
+              type: trained
+              objective: act_quant_mse
+              act: {type: int, bits: 4, symmetric: false, granularity: per_token, zero_point: float}
+              optimizer: adam
+              lr: 0.001
+              init_seed: 42
+              calibration:
+                dataset: Self-GRIT/wikitext-2-raw-v1-preprocessed
+                split: train
+                n_samples: 512
+                batch_size: 16
+                max_length: 512
+                epochs: 8
+                shuffle_seed: 42
+                chat_template: false
+                padding: max_length
+          - position: norm.post_attention_layernorm.out
+            layers: all
+            mode: offline
+            source: *scaling
+    source: "code: config/qwen3_4b_thinking_a4w4.yaml#L5-L13 (512 samples, batch 16, max_length 512, 8 epochs, lr 1e-3, wiki_ratio 0.9, tie true), rotation/training.py#L26-L70 (loss hook), #L168-L241 (rotation stage: Adam, DataLoader seed 42, padding max_length), #L243-L292 (scaling stage: init 1 + 0.01 randn, one Adam per vector), rotation/pipeline.py#L45-L93 (norm weight divided, consumers multiplied)"

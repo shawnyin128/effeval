@@ -11,10 +11,10 @@ from importlib import resources
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from effeval.core.catalog import PaperRef, PresetValue
-from effeval.core.fragments import Calibration, LayerSelector
+from effeval.core.fragments import Calibration, IntFormat, LayerSelector, TextBatches, sequence_options
 from effeval.core.graph import LayerGraph, ModelShape, hadamard_size_ok, input_width
 from effeval.core.types import StrictModel
 
@@ -50,15 +50,40 @@ class DuQuantRotation(StrictModel):
     seed: int = 2
 
 
+def default_trained_act() -> IntFormat:
+    """The activation quantizer the trained sources minimise the error of: 4-bit per-token min-max."""
+    return IntFormat(type="int", bits=4, symmetric=False, granularity="per_token", zero_point="float")
+
+
+def check_trained_act(act: IntFormat) -> IntFormat:
+    """`act` as is when it is a per-token asymmetric min-max grid with a float zero point and no sequence
+    options (the grid `act_quant_mse` computes). Raises ValueError otherwise."""
+    if act.symmetric or act.granularity != "per_token" or act.zero_point != "float" or sequence_options(act):
+        raise ValueError(
+            "a trained source minimises the error of a per-token asymmetric grid with zero_point float "
+            "and no group_axis or residual"
+        )
+    return act
+
+
 class TrainedRotation(StrictModel):
-    """Reserved: rejected by validation until implemented."""
+    """R1 trained by Adam on a Cayley parametrization, minimising the activation quantization error of the
+    rotated normalized outputs of every residual-stream norm (CodeQuant's AOS)."""
 
     type: Literal["trained"] = "trained"
-    objective: str | None = None
-    steps: int | None = None
-    lr: float | None = None
-    batch: int | None = None
-    calibration: Calibration | None = None
+    objective: Literal["act_quant_mse"] = "act_quant_mse"
+    act: IntFormat = Field(default_factory=default_trained_act)
+    optimizer: Literal["adam"] = "adam"
+    lr: float = Field(gt=0.0, description="Adam learning rate.")
+    init_seed: int = Field(
+        default=0, description="Seed of the float32 nn.Linear whose weight initialises the rotation."
+    )
+    calibration: TextBatches
+
+    @field_validator("act")
+    @classmethod
+    def _act_grid(cls, act: IntFormat) -> IntFormat:
+        return check_trained_act(act)
 
 
 class SmoothQuantScaling(StrictModel):
@@ -94,14 +119,21 @@ class AwqScaling(StrictModel):
 
 
 class TrainedScaling(StrictModel):
-    """Reserved: rejected by validation until implemented."""
+    """One scaling vector per norm output, trained by Adam to minimise the activation quantization error of
+    the scaled output (CodeQuant2); initialised as 1 + 0.01 * N(0, 1)."""
 
     type: Literal["trained"] = "trained"
-    objective: str | None = None
-    steps: int | None = None
-    lr: float | None = None
-    batch: int | None = None
-    calibration: Calibration | None = None
+    objective: Literal["act_quant_mse"] = "act_quant_mse"
+    act: IntFormat = Field(default_factory=default_trained_act)
+    optimizer: Literal["adam"] = "adam"
+    lr: float = Field(gt=0.0, description="Adam learning rate.")
+    init_seed: int = Field(default=0, description="Seed of the generator drawing the initial vectors.")
+    calibration: TextBatches
+
+    @field_validator("act")
+    @classmethod
+    def _act_grid(cls, act: IntFormat) -> IntFormat:
+        return check_trained_act(act)
 
 
 RotationSource = Annotated[
@@ -118,15 +150,16 @@ SOURCE_VERSIONS: dict[str, dict[str, str]] = {
         "random_hadamard": "1",
         "random_orthogonal": "1",
         "duquant": "1",
-        "trained": "0",
+        "trained": "1",
     },
-    "scaling": {"smoothquant": "1", "awq": "1", "smoothattention": "1", "trained": "0"},
+    "scaling": {"smoothquant": "1", "awq": "1", "smoothattention": "1", "trained": "1"},
 }
 """Algorithm version of each source type, by kind; bump it when a source's numerics change."""
 
-RESERVED_SOURCES = frozenset({"trained"})
-DATA_SOURCES = frozenset({"smoothquant", "awq", "smoothattention", "duquant", "trained"})
-"""Source types whose result depends on calibration data."""
+RESERVED_SOURCES: frozenset[str] = frozenset()
+"""Source types declared but not implemented; validation rejects them."""
+DATA_SOURCES = frozenset({"smoothquant", "awq", "smoothattention", "duquant"})
+"""Source types whose result depends on the calibration data of their step; `trained` carries its own."""
 
 SOURCE_POSITIONS: dict[str, dict[str, list[str]]] = {
     "scaling": {
@@ -166,9 +199,23 @@ class Entry(StrictModel):
 class RotationEntry(Entry):
     source: RotationSource
 
+    @model_validator(mode="after")
+    def _trained_is_offline_residual(self) -> RotationEntry:
+        if self.source.type == "trained" and (self.position != "residual" or self.mode != "offline"):
+            raise ValueError("a trained rotation is available at the residual position, offline, only")
+        return self
+
 
 class ScalingEntry(Entry):
     source: ScalingSource
+
+    @model_validator(mode="after")
+    def _trained_is_offline_norm(self) -> ScalingEntry:
+        if self.source.type == "trained" and (
+            not fnmatch.fnmatchcase(self.position, "norm.*.out") or self.mode != "offline"
+        ):
+            raise ValueError("a trained scaling is available at norm.*.out positions, offline, only")
+        return self
 
 
 class RotationStep(StrictModel):

@@ -120,10 +120,11 @@ def _rotate_bias_blocks(linear: nn.Linear, matrices: torch.Tensor) -> None:
     _set(linear.bias, rotated.reshape(-1).to(linear.bias.dtype))
 
 
-def _rotate_residual(net: Net, entry: RotationEntry, result: StageResult) -> None:
-    shape = net.shape
+def prepare_residual(net: Net, entry: RotationEntry, result: StageResult) -> None:
+    """Everything a residual rotation does before the matrix: untie lm_head, centre the embedding, fold the
+    norm gains into their consumers and lm_head (gains become 1). Raises EngineError for a tied model
+    without `untie_embeddings`."""
     options = entry.options
-    q = rotation_matrix(entry.source, shape.hidden, "residual")
     embedding, lm_head = net.embedding, net.lm_head
 
     if lm_head.weight.data_ptr() == embedding.weight.data_ptr():
@@ -158,6 +159,13 @@ def _rotate_residual(net: Net, entry: RotationEntry, result: StageResult) -> Non
         f"residual: folded norm gains into {len(layer_norms)} input groups per layer and lm_head"
     )
 
+
+def fold_residual(net: Net, entry: RotationEntry, q: torch.Tensor, result: StageResult) -> None:
+    """Fold the orthogonal matrix `q` [hidden, hidden] into the embedding, every stream consumer and
+    producer, and lm_head, after `prepare_residual`."""
+    shape = net.shape
+    embedding, lm_head = net.embedding, net.lm_head
+    layer_norms = net.stream_consumers()
     _set(embedding.weight, rot.fold_input(embedding.weight, q))
     _set(lm_head.weight, rot.fold_input(lm_head.weight, q))
     for layer in range(len(net.layers)):
@@ -326,7 +334,9 @@ def apply_rotation(model: nn.Module, graph: LayerGraph, entries: list[Entry], ct
         by_position[entry.position] = entry
     result = StageResult()
     if "residual" in by_position:
-        _rotate_residual(net, by_position.pop("residual"), result)
+        entry = by_position.pop("residual")
+        prepare_residual(net, entry, result)
+        fold_residual(net, entry, rotation_matrix(entry.source, net.shape.hidden, "residual"), result)
     v_entry = by_position.pop("attn.v_head", None)
     _v_node, o_node = _value_and_output_nodes(graph)
     o_entry = by_position.pop(f"linear.{o_node.canon}.input", None)
