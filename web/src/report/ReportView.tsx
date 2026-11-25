@@ -67,7 +67,7 @@ async function copyPaper(describe: Describe, parts: { block: Block; fields: Conf
   return copyTable(header, rows.map((r) => ({ cells: r.cells, marks: r.marks, highlight: r.ours })), footnote);
 }
 
-export function ReportView({ rows, project, showOwners, onChanged }: { rows: Row[]; project: string | null; showOwners: boolean; onChanged?: () => void }) {
+export function ReportView({ rows, project, showOwners, inPool = false, onChanged }: { rows: Row[]; project: string | null; showOwners: boolean; inPool?: boolean; onChanged?: () => void }) {
   const { describe } = useApp();
   const t = useT();
   const toast = useToast();
@@ -110,18 +110,18 @@ export function ReportView({ rows, project, showOwners, onChanged }: { rows: Row
           {t("Compare to baseline")}
         </label>
       </div>
-      {visible.map((b) => <ReportBlock key={b.id} block={b} project={project} colored={colored} showOwners={showOwners} onOpenRecord={(r) => setRecordId(r.record_id)} onChanged={onChanged} />)}
+      {visible.map((b) => <ReportBlock key={b.id} block={b} project={project} colored={colored} showOwners={showOwners} inPool={inPool} onOpenRecord={(r) => setRecordId(r.record_id)} onChanged={onChanged} />)}
     </div>
       {record && (
         <div className="dock">
-          <RecordPanel row={record} project={project} onClose={() => setRecordId(null)} onChanged={onChanged} />
+          <RecordPanel row={record} project={project} inPool={inPool} onClose={() => setRecordId(null)} onChanged={onChanged} />
         </div>
       )}
     </div>
   );
 }
 
-function ReportBlock({ block: full, project, colored, showOwners, onOpenRecord, onChanged }: { block: Block; project: string | null; colored: boolean; showOwners: boolean; onOpenRecord: (row: Row) => void; onChanged?: () => void }) {
+function ReportBlock({ block: full, project, colored, showOwners, inPool, onOpenRecord, onChanged }: { block: Block; project: string | null; colored: boolean; showOwners: boolean; inPool: boolean; onOpenRecord: (row: Row) => void; onChanged?: () => void }) {
   const { describe } = useApp();
   const t = useT();
   const toast = useToast();
@@ -202,7 +202,7 @@ function ReportBlock({ block: full, project, colored, showOwners, onOpenRecord, 
           <>
             <span className="small"><b>{t("{n} rows selected", { n: picked.size })}</b></span>
             <PublishSelected rows={recordsOf(block.rows.filter((r) => picked.has(r.key)))} onDone={() => { setPicked(new Set()); onChanged?.(); }} />
-            <Button size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => askRemoveRows(block.rows.filter((r) => picked.has(r.key)))}>{t("Remove…")}</Button>
+            {!inPool && <Button size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => askRemoveRows(block.rows.filter((r) => picked.has(r.key)))}>{t("Remove…")}</Button>}
             <button className="icon-button" aria-label={t("Clear")} onClick={() => setPicked(new Set())}><X size={13} /></button>
           </>
         )}
@@ -262,7 +262,7 @@ function ReportBlock({ block: full, project, colored, showOwners, onOpenRecord, 
                 <th key={m.id} className="z-result" title={[`${m.task} · ${metricHeader(describe, m.metric)}`, ...m.mixed].join("\n")}>
                   <span className="th-title">
                     {m.mixed.length > 0 && <TriangleAlert size={12} className="mixed-icon" />}{columnTitle(m)}
-                    <button className="col-remove" aria-label={t("Remove this task's results")} title={t("Remove this task's results")} onClick={() => askRemoveColumn(m.task)}><Trash2 size={11} /></button>
+                    {!inPool && <button className="col-remove" aria-label={t("Remove this task's results")} title={t("Remove this task's results")} onClick={() => askRemoveColumn(m.task)}><Trash2 size={11} /></button>}
                   </span>
                 </th>
               ))}
@@ -315,7 +315,7 @@ function ReportBlock({ block: full, project, colored, showOwners, onOpenRecord, 
         </table>
       </div>
 
-      {hasOtherProblems && <div className="report-note"><span className="problem-mark">!</span>{t("A result marked ! is invalid (in the recycle bin, redo pending or retracted); hover it for the reason.")}</div>}
+      {hasOtherProblems && <div className="report-note"><span className="problem-mark">!</span>{t("A result marked ! is invalid (in the recycle bin, redo pending or retracted by its owner); hover it for the reason.")}</div>}
       <RemoveDialog removal={removal} project={project}
         onClose={() => setRemoval(null)} onDone={() => { setRemoval(null); setPicked(new Set()); onChanged?.(); }} />
       <Dialog open={!!configRow} onOpenChange={(o) => !o && setConfigRow(null)} wide

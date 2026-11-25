@@ -27,9 +27,9 @@ function Section({ title, children, defaultOpen = true }: { title: string; child
   );
 }
 
-/** Whether `me` may publish the record: it is private and live, and theirs unless they are an admin. */
+/** Whether `me` may publish the record: it is private or retracted and live, and theirs unless they are an admin. */
 export function canPublish(row: Row, me: Me): boolean {
-  return row.state !== "trashed" && row.visibility === "private" && (row.owner === me.username || me.role === "admin");
+  return row.state !== "trashed" && row.visibility !== "public" && (row.owner === me.username || me.role === "admin");
 }
 
 /** Button that publishes every record in `rows` the user may publish; hidden when there is none. */
@@ -59,9 +59,10 @@ function metricsByPriority(describe: Describe, row: Row): [string, string][] {
 }
 
 /** Docked inspector for one record: full-precision values, provenance, annotation and sharing. */
-export function RecordPanel({ row, project, onClose, onChanged }: {
+export function RecordPanel({ row, project, inPool = false, onClose, onChanged }: {
   row: Row;
   project?: string | null;
+  inPool?: boolean;
   onClose: () => void;
   onChanged?: () => void;
 }) {
@@ -82,10 +83,10 @@ export function RecordPanel({ row, project, onClose, onChanged }: {
     setStatus(row.annotation?.status ?? "unreviewed");
   }, [row]);
 
-  const act = async (fn: () => Promise<unknown>, done: string) => {
+  const act = async <T,>(fn: () => Promise<T>, done: string | ((result: T) => string)) => {
     try {
-      await fn();
-      toast(done);
+      const result = await fn();
+      toast(typeof done === "string" ? done : done(result));
       setPending(null);
       onChanged?.();
     } catch (e) {
@@ -144,6 +145,7 @@ export function RecordPanel({ row, project, onClose, onChanged }: {
       {pending?.kind === "delete" && (
         <div className="panel-callout warning">
           <div className="callout-title">{t("Move this result to the trash?")}</div>
+          {row.visibility !== "private" && <div className="small">{t("It will also disappear from the lab pool.")}</div>}
           {pending.dependents.comparisons.length > 0 && (
             <div className="small">{t("{n} results compare against it", { n: pending.dependents.comparisons.length })}:
               <ul>{pending.dependents.comparisons.map((d) => <li key={d.record_id} className="mono tiny">{d.model} · {d.owner} · {d.record_id.slice(0, 12)}</li>)}</ul>
@@ -264,7 +266,8 @@ export function RecordPanel({ row, project, onClose, onChanged }: {
       {!trashed && (canEdit || project) && (
         <div className="panel-actions">
           {canEdit && row.visibility === "private" && <Button variant="primary" icon={<Globe size={14} />} onClick={() => act(() => api.publish(row.record_id), t("Published"))}>{t("Publish")}</Button>}
-          {canEdit && row.visibility === "public" && <Button icon={<Undo2 size={14} />} onClick={() => act(() => api.retract(row.record_id), t("Retracted"))}>{t("Retract")}</Button>}
+          {canEdit && row.visibility === "retracted" && <Button variant="primary" icon={<Globe size={14} />} onClick={() => act(() => api.publish(row.record_id), t("Published"))}>{t("Republish")}</Button>}
+          {canEdit && row.visibility !== "private" && <Button icon={<Undo2 size={14} />} onClick={() => act(() => api.retract(row.record_id), ({ unshared }) => unshared === "private" ? t("Set to private") : t("Retracted: others are using it, so it stays in the lab pool with a warning"))}>{t("Remove from the lab pool")}</Button>}
           {linkable.length > 0 && (
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild><Button variant="ghost" icon={<FolderPlus size={14} />} aria-label={t("Add to project")} title={t("Add to project")} /></DropdownMenu.Trigger>
@@ -281,7 +284,7 @@ export function RecordPanel({ row, project, onClose, onChanged }: {
           {project && <Button variant="ghost" icon={<FolderMinus size={14} />} aria-label={t("Remove from project")} title={t("Remove from project")} onClick={() => act(() => api.unlink(project, row.record_id), t("Removed from project"))} />}
           {canEdit && row.state === "redo" && <Button variant="ghost" onClick={() => act(() => api.cancelRedo(row.record_id), t("Redo cancelled"))}>{t("Cancel redo")}</Button>}
           {canEdit && row.state === "active" && <Button variant="ghost" icon={<RotateCw size={14} />} aria-label={t("Redo")} title={t("Redo")} onClick={() => setPending({ kind: "redo", to: "private" })} />}
-          {canEdit && <Button variant="ghost" icon={<Trash2 size={14} />} aria-label={t("Delete")} title={t("Delete")} onClick={startDelete} />}
+          {canEdit && !inPool && <Button variant="ghost" icon={<Trash2 size={14} />} aria-label={t("Delete")} title={t("Delete")} onClick={startDelete} />}
         </div>
       )}
     </aside>

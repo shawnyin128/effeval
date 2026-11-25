@@ -298,8 +298,10 @@ def cmd_publish(args: argparse.Namespace) -> int:
 
 
 def cmd_retract(args: argparse.Namespace) -> int:
-    _client(args).retract(args.record_id)
-    print("retracted")
+    outcome = _client(args).retract(args.record_id)
+    print(
+        "made private" if outcome == "private" else "retracted: others use it, it stays in the pool flagged"
+    )
     return 0
 
 
@@ -597,8 +599,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_query)
 
-    for name, fn in (("publish", cmd_publish), ("retract", cmd_retract)):
-        p = sub.add_parser(name, help=f"{name} a record")
+    for name, fn, summary in (
+        ("publish", cmd_publish, "share a record in the lab pool (also republishes a retracted one)"),
+        ("retract", cmd_retract, "take a record out of the lab pool: private, or retracted if others use it"),
+    ):
+        p = sub.add_parser(name, help=summary)
         p.add_argument("record_id")
         p.add_argument("--server")
         p.set_defaults(fn=fn)

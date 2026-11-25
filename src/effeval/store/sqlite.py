@@ -579,18 +579,18 @@ class SqliteStore:
         return record.model_copy(update={"visibility": Visibility(row["visibility"])})
 
     def set_visibility(self, record_id: str, visibility: Visibility) -> None:
-        """Change a record's visibility; publishing moves its per-sample file into the shared directory."""
+        """Change a record's visibility; publishing moves its per-sample file into the shared directory and
+        making it private moves the file back to the owner's directory."""
         with self._write("records") as db:
             db.execute("UPDATE records SET visibility = ? WHERE record_id = ?", (visibility.value, record_id))
             row = db.execute("SELECT body FROM records WHERE record_id = ?", (record_id,)).fetchone()
-        if visibility == Visibility.PUBLIC:
-            current = self.artifact_path(
-                Record.model_validate_json(row["body"]).artifacts.get("per_sample", "")
-            )
-            shared = self.storage_dir(self.SHARED)
-            if current is not None and current.parent.resolve() != shared.resolve():
-                shared.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(current), shared / current.name)
+        if visibility in (Visibility.PUBLIC, Visibility.PRIVATE):
+            record = Record.model_validate_json(row["body"])
+            current = self.artifact_path(record.artifacts.get("per_sample", ""))
+            target = self.storage_dir(self.SHARED if visibility == Visibility.PUBLIC else record.owner)
+            if current is not None and current.parent.resolve() != target.resolve():
+                target.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(current), target / current.name)
 
     def visible_records(self, viewer: str | None, *, where: str = "", params: tuple = ()) -> list[Record]:
         """Records the viewer may see and that are not in the trash.
@@ -862,10 +862,10 @@ class SqliteStore:
         self, run_key: str, *, viewer: str | None, need: frozenset[Artifact], hardware: str | None
     ) -> Record | None:
         where = (
-            "run_key = ? AND visibility != 'retracted' AND probe = 0 AND reusable = 1"
+            "run_key = ? AND (visibility != 'retracted' OR owner = ?) AND probe = 0 AND reusable = 1"
             " AND record_id NOT IN (SELECT record_id FROM record_states)"
         )
-        params: tuple = (run_key,)
+        params: tuple = (run_key, viewer)
         if hardware is not None:
             where += " AND gpu = ?"
             params += (hardware,)

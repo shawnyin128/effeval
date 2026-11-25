@@ -196,20 +196,6 @@ def test_bundle_import_is_private_idempotent_and_tamper_checked(server):
     assert alice.post("/api/bundles", content=text, headers={"Content-Type": "text/plain"}).status_code == 400
 
 
-def test_publish_needs_rights_and_retract_keeps_record_visible_but_unreusable(server):
-    _app, _admin, as_user = server
-    alice, agent, bob = as_user("alice"), as_user("alice", can_publish=False), as_user("bob")
-    push(alice, record("job_1", "rk_a", {"accuracy": "0.5"}, role="reference"))
-    assert agent.post("/api/records/rec_job_1/publish").status_code == 403
-    assert bob.post("/api/records/rec_job_1/publish").status_code == 403
-    alice.post("/api/records/rec_job_1/publish").raise_for_status()
-    assert [r["record_id"] for r in bob.get("/api/records?scope=pool").json()] == ["rec_job_1"]
-    assert bob.get("/api/reuse", params={"run_key": "rk_a"}).json()["record"]["record_id"] == "rec_job_1"
-    alice.post("/api/records/rec_job_1/retract").raise_for_status()
-    assert bob.get("/api/records?scope=pool").json()[0]["visibility"] == "retracted"
-    assert bob.get("/api/reuse", params={"run_key": "rk_a"}).json()["record"] is None
-
-
 def test_comparisons_computed_on_import_in_either_order(server, tmp_path):
     _app, _admin, as_user = server
     alice = as_user("alice")
@@ -428,6 +414,244 @@ def push_to(client, to, *records):
 
 def ids(client, scope):
     return sorted(r["record_id"] for r in client.get("/api/records", params={"scope": scope}).json())
+
+
+def test_publish_needs_rights_and_republish_works_from_private_and_retracted(server):
+    _app, _admin, as_user = server
+    alice, agent, bob = as_user("alice"), as_user("alice", can_publish=False), as_user("bob")
+    push(alice, record("job_1", "rk_a", {"accuracy": "0.5"}, role="reference"))
+    assert agent.post("/api/records/rec_job_1/publish").status_code == 403
+    assert bob.post("/api/records/rec_job_1/publish").status_code == 403
+    alice.post("/api/records/rec_job_1/publish").raise_for_status()
+    assert [r["record_id"] for r in bob.get("/api/records?scope=pool").json()] == ["rec_job_1"]
+    assert bob.get("/api/reuse", params={"run_key": "rk_a"}).json()["record"]["record_id"] == "rec_job_1"
+    bob.post("/api/projects", json={"name": "q"}).raise_for_status()
+    bob.post("/api/projects/q/records", json={"record_ids": ["rec_job_1"]}).raise_for_status()
+    assert alice.post("/api/records/rec_job_1/retract").json()["unshared"] == "retracted"
+    assert bob.get("/api/records?scope=pool").json()[0]["visibility"] == "retracted"
+    assert bob.get("/api/reuse", params={"run_key": "rk_a"}).json()["record"] is None
+    assert alice.get("/api/reuse", params={"run_key": "rk_a"}).json()["record"]["record_id"] == "rec_job_1"
+    alice.post("/api/records/rec_job_1/publish").raise_for_status()
+    assert alice.get("/api/records/rec_job_1").json()["visibility"] == "public"
+    assert bob.get("/api/reuse", params={"run_key": "rk_a"}).json()["record"]["record_id"] == "rec_job_1"
+
+
+def test_unshare_without_dependents_makes_the_record_private_and_keeps_the_owners_views(server):
+    _app, _admin, as_user = server
+    alice, bob = as_user("alice"), as_user("bob")
+    alice.post("/api/projects", json={"name": "p"}).raise_for_status()
+    alice.post("/api/projects/p/members", json={"username": "bob"}).raise_for_status()
+    push_to(alice, "project:p", record("job_1", "rk_a", {"accuracy": "0.5"})).raise_for_status()
+    alice.post("/api/records/rec_job_1/publish").raise_for_status()
+    assert ids(bob, "pool") == ["rec_job_1"]
+
+    assert alice.post("/api/records/rec_job_1/retract").json() == {"ok": True, "unshared": "private"}
+    assert alice.get("/api/records/rec_job_1").json()["visibility"] == "private"
+    assert ids(bob, "pool") == []
+    for scope in ("mine", "project:p"):
+        (own,) = alice.get("/api/records", params={"scope": scope}).json()
+        assert own["problems"] == [] and own["state"] == "active"
+    assert alice.post("/api/records/rec_job_1/retract").status_code == 409
+    alice.post("/api/records/rec_job_1/publish").raise_for_status()
+    assert ids(bob, "pool") == ["rec_job_1"]
+
+
+def unshare_with_comparison_dependent(server):
+    _app, _admin, as_user = server
+    alice, bob = as_user("alice"), as_user("bob")
+    samples = [Sample(id="0", scores={"correct": 1.0})]
+    ref = record(
+        "job_r",
+        "rk_r",
+        {"accuracy": "0.5"},
+        role="reference",
+        artifacts={"per_sample": upload(alice, samples)},
+        produces=[Artifact.PER_SAMPLE],
+    )
+    push(alice, ref).raise_for_status()
+    alice.post("/api/records/rec_job_r/publish").raise_for_status()
+    main = record(
+        "job_m",
+        "rk_m",
+        {"accuracy": "0.4"},
+        reference_key="rk_r",
+        compare=["flip_rate"],
+        artifacts={"per_sample": upload(bob, samples)},
+        produces=[Artifact.PER_SAMPLE],
+    )
+    push(bob, main).raise_for_status()
+    assert [d["owner"] for d in alice.get("/api/records/rec_job_r/dependents").json()["comparisons"]] == [
+        "bob"
+    ]
+    return alice, bob
+
+
+def test_unshare_keeps_the_record_in_the_pool_flagged_when_another_user_compares_against_it(server):
+    alice, bob = unshare_with_comparison_dependent(server)
+    assert alice.post("/api/records/rec_job_r/retract").json() == {"ok": True, "unshared": "retracted"}
+    (seen,) = [r for r in bob.get("/api/records", params={"scope": "pool"}).json()]
+    assert seen["record_id"] == "rec_job_r" and seen["problems"] == ["retracted"]
+    (own,) = alice.get("/api/records", params={"scope": "mine"}).json()
+    assert own["visibility"] == "retracted" and own["problems"] == []
+    alice.post("/api/records/rec_job_r/publish").raise_for_status()
+    assert alice.get("/api/records/rec_job_r").json()["visibility"] == "public"
+    assert bob.get("/api/records", params={"scope": "pool"}).json()[0]["problems"] == []
+
+
+def test_unshare_keeps_the_record_in_the_pool_flagged_when_a_foreign_project_links_it(server):
+    _app, _admin, as_user = server
+    alice, bob = as_user("alice"), as_user("bob")
+    push(alice, record("job_1", "rk_a", {"accuracy": "0.5"}))
+    alice.post("/api/records/rec_job_1/publish").raise_for_status()
+    bob.post("/api/projects", json={"name": "q"}).raise_for_status()
+    bob.post("/api/projects/q/records", json={"record_ids": ["rec_job_1"]}).raise_for_status()
+    assert alice.post("/api/records/rec_job_1/retract").json()["unshared"] == "retracted"
+    (row,) = bob.get("/api/records", params={"scope": "project:q"}).json()
+    assert row["problems"] == ["retracted"]
+    assert alice.get("/api/records/rec_job_1").json()["problems"] == []
+    alice.post("/api/records/rec_job_1/publish").raise_for_status()
+    assert bob.get("/api/records", params={"scope": "project:q"}).json()[0]["problems"] == []
+
+
+def test_unpublishing_to_private_moves_the_per_sample_file_back_to_the_owners_storage(server, tmp_path):
+    _app, admin, as_user = server
+    alice = as_user("alice")
+    admin.put("/api/settings/storage/shared", json={"path": str(tmp_path / "shared")}).raise_for_status()
+    alice.put("/api/me/storage", json={"path": str(tmp_path / "alice")}).raise_for_status()
+    uri = upload(alice, [Sample(id="0", scores={"correct": 1.0})])
+    name = uri.rsplit("/", 1)[1]
+    push(alice, record("job_1", "rk_a", {"accuracy": "0.5"}, artifacts={"per_sample": uri}))
+    assert (tmp_path / "alice" / name).exists()
+    alice.post("/api/records/rec_job_1/publish").raise_for_status()
+    assert (tmp_path / "shared" / name).exists() and not (tmp_path / "alice" / name).exists()
+    alice.post("/api/records/rec_job_1/retract").raise_for_status()
+    assert (tmp_path / "alice" / name).exists() and not (tmp_path / "shared" / name).exists()
+
+
+def retract_with_foreign_project(alice, bob, record_id="rec_job_1"):
+    bob.post("/api/projects", json={"name": "q"}).raise_for_status()
+    bob.post("/api/projects/q/records", json={"record_ids": [record_id]}).raise_for_status()
+    assert alice.post(f"/api/records/{record_id}/retract").json()["unshared"] == "retracted"
+
+
+def test_the_owner_may_compare_against_their_retracted_record_but_others_may_not(server, tmp_path):
+    _app, _admin, as_user = server
+    alice, bob = as_user("alice"), as_user("bob")
+    samples = [Sample(id="0", scores={"correct": 1.0})]
+    ref = record(
+        "job_r",
+        "rk_r",
+        {"accuracy": "0.5"},
+        role="reference",
+        artifacts={"per_sample": upload(alice, samples)},
+        produces=[Artifact.PER_SAMPLE],
+    )
+    push(alice, ref).raise_for_status()
+    alice.post("/api/records/rec_job_r/publish").raise_for_status()
+    retract_with_foreign_project(alice, bob, "rec_job_r")
+    for who, job_id in ((alice, "job_a"), (bob, "job_b")):
+        main = record(
+            job_id,
+            "rk_" + job_id,
+            {"accuracy": "0.4"},
+            reference_key="rk_r",
+            compare=["flip_rate"],
+            artifacts={"per_sample": upload(who, samples)},
+            produces=[Artifact.PER_SAMPLE],
+        )
+        push(who, main).raise_for_status()
+    assert stored_comparisons(tmp_path, "rec_job_a")["flip_rate"] == "0.0"
+    assert stored_comparisons(tmp_path, "rec_job_b") == {}
+
+
+def test_the_owners_own_comparison_or_a_trashed_foreign_one_is_no_dependent(server):
+    alice, bob = unshare_with_comparison_dependent(server)
+    own = record(
+        "job_a",
+        "rk_a",
+        {"accuracy": "0.4"},
+        reference_key="rk_r",
+        compare=["flip_rate"],
+        artifacts={
+            "per_sample": alice.get("/api/records/rec_job_r").json()["record"]["artifacts"]["per_sample"]
+        },
+        produces=[Artifact.PER_SAMPLE],
+    )
+    push(alice, own).raise_for_status()
+    owners = [d["owner"] for d in alice.get("/api/records/rec_job_r/dependents").json()["comparisons"]]
+    assert sorted(owners) == ["alice", "bob"]
+    bob.delete("/api/records/rec_job_m").raise_for_status()
+    assert alice.post("/api/records/rec_job_r/retract").json()["unshared"] == "private"
+
+
+def test_unsharing_a_retracted_record_whose_dependents_are_gone_makes_it_private(server):
+    _app, _admin, as_user = server
+    alice, bob = as_user("alice"), as_user("bob")
+    push(alice, record("job_1", "rk_a", {"accuracy": "0.5"}))
+    alice.post("/api/records/rec_job_1/publish").raise_for_status()
+    retract_with_foreign_project(alice, bob)
+    assert alice.post("/api/records/rec_job_1/retract").json()["unshared"] == "retracted"
+    bob.delete("/api/projects/q/records/rec_job_1").raise_for_status()
+    assert alice.post("/api/records/rec_job_1/retract").json()["unshared"] == "private"
+    assert alice.get("/api/records/rec_job_1").json()["visibility"] == "private"
+
+
+def test_an_admin_unsharing_moves_the_file_to_the_records_owner_not_the_admin(server, tmp_path):
+    _app, admin, as_user = server
+    alice = as_user("alice")
+    admin.put("/api/settings/storage/shared", json={"path": str(tmp_path / "shared")}).raise_for_status()
+    alice.put("/api/me/storage", json={"path": str(tmp_path / "alice")}).raise_for_status()
+    admin.put("/api/me/storage", json={"path": str(tmp_path / "admin")}).raise_for_status()
+    uri = upload(alice, [Sample(id="0", scores={"correct": 1.0})])
+    name = uri.rsplit("/", 1)[1]
+    push(alice, record("job_1", "rk_a", {"accuracy": "0.5"}, artifacts={"per_sample": uri}))
+    alice.post("/api/records/rec_job_1/publish").raise_for_status()
+    admin.post("/api/records/rec_job_1/retract").raise_for_status()
+    assert (tmp_path / "alice" / name).exists() and not (tmp_path / "admin" / name).exists()
+
+
+def test_a_redo_of_a_retracted_record_stays_retracted(server):
+    _app, _admin, as_user = server
+    alice, bob = as_user("alice"), as_user("bob")
+    spec = {"model": "qwen3-0.6b-base", "method": {"name": "gptq"}, "field": "quantization"}
+    job = next(
+        j
+        for j in alice.post("/api/render", json={"spec": spec}).json()["plan"]["jobs"]
+        if j["role"] == "main"
+    )
+
+    def result(job_id):
+        return Record(
+            record_id="rec_" + job_id,
+            job_id=job_id,
+            run_key=job["run_key"],
+            reference_key=job["reference_key"],
+            role="main",
+            compare=job["compare"],
+            spec=job["spec"],
+            metrics={"ppl": "27.6"},
+            protocol={},
+            env=None,
+            fidelity=Fidelity(),
+            created_at="2026-11-20T00:00:00+00:00",
+        )
+
+    push(alice, result("job_old")).raise_for_status()
+    alice.post("/api/records/rec_job_old/publish").raise_for_status()
+    retract_with_foreign_project(alice, bob, "rec_job_old")
+    alice.post("/api/records/rec_job_old/redo", json={"to": "private"}).raise_for_status()
+    push(alice, result("job_new")).raise_for_status()
+    assert alice.get("/api/records/rec_job_new").json()["visibility"] == "retracted"
+
+
+def test_the_http_client_reports_the_unshare_outcome(server):
+    from effeval.store.http import HttpClient
+
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    push(alice, record("job_1", "rk_a", {"accuracy": "0.5"}))
+    alice.post("/api/records/rec_job_1/publish").raise_for_status()
+    assert HttpClient("http://testserver", None, http=alice).retract("rec_job_1") == "private"
 
 
 def test_projects_share_results_only_with_members(server):

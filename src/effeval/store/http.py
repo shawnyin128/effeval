@@ -176,8 +176,9 @@ class HttpClient:
     def publish(self, record_id: str) -> None:
         self._call("POST", f"/api/records/{record_id}/publish")
 
-    def retract(self, record_id: str) -> None:
-        self._call("POST", f"/api/records/{record_id}/retract")
+    def retract(self, record_id: str) -> str:
+        """Take a record out of the lab pool; returns "private" or "retracted" (others depend on it)."""
+        return self._call("POST", f"/api/records/{record_id}/retract")["unshared"]
 
     def admin(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
         return self._call(method, f"/api/admin{path}", json=body)

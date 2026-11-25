@@ -127,7 +127,7 @@ export function Results({ scope }: { scope: Scope }) {
               : <Empty icon={<Users size={20} />} title={t("Nothing published yet")} />}
         </div>
       ) : view === "report" ? (
-        <ReportView key={active} rows={fieldRows} project={projectName} showOwners={scope !== "mine"} onChanged={load} />
+        <ReportView key={active} rows={fieldRows} project={projectName} showOwners={scope !== "mine"} inPool={scope === "pool"} onChanged={load} />
       ) : (
         <ResultsSheet key={active} rows={fieldRows} scope={scope} field={active} onChanged={load} />
       )}

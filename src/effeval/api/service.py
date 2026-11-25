@@ -471,9 +471,9 @@ def _compute_comparisons(store: SqliteStore, main: Record) -> bool:
         iter(
             store.visible_records(
                 main.owner,
-                where="run_key = ? AND visibility != 'retracted' AND record_id NOT IN"
+                where="run_key = ? AND (visibility != 'retracted' OR owner = ?) AND record_id NOT IN"
                 " (SELECT record_id FROM record_states)",
-                params=(main.reference_key,),
+                params=(main.reference_key, main.owner),
             )
         ),
         None,
@@ -597,7 +597,9 @@ def import_bundle(
         backfill(store, owned)
         for old in store.redo_pending(owned.run_key, actor.username):
             store.link_records_from(old.record_id, owned.record_id, actor.username)
-            if old.visibility == Visibility.PUBLIC and actor.can_publish:
+            if old.visibility == Visibility.RETRACTED:
+                store.set_visibility(owned.record_id, Visibility.RETRACTED)
+            elif old.visibility == Visibility.PUBLIC and actor.can_publish:
                 store.set_visibility(owned.record_id, Visibility.PUBLIC)
             store.set_state(old.record_id, "trashed", actor.username, superseded_by=owned.record_id)
             redone.append(old.record_id)
@@ -609,7 +611,7 @@ def import_bundle(
     stored = imported + [rid for rid in map(store.record_id_for_job, duplicates) if rid is not None]
     if to == "pool":
         for record_id in stored:
-            if store.record(record_id).visibility == Visibility.PRIVATE:
+            if store.record(record_id).visibility in (Visibility.PRIVATE, Visibility.RETRACTED):
                 store.set_visibility(record_id, Visibility.PUBLIC)
     elif to.startswith("project:"):
         store.link_records(to[len("project:") :], stored, actor.username)
@@ -631,12 +633,16 @@ def import_bundle(
 
 
 def _problems(
-    store: SqliteStore, record: Record, state: dict[str, Any] | None, reference: str | None
+    store: SqliteStore,
+    record: Record,
+    state: dict[str, Any] | None,
+    reference: str | None,
+    viewer: str | None,
 ) -> list[str]:
     problems = []
     if state is not None:
         problems.append(state["state"])
-    if record.visibility == Visibility.RETRACTED:
+    if record.visibility == Visibility.RETRACTED and record.owner != viewer:
         problems.append("retracted")
     ref_state = None if reference is None else store.state(reference)
     if ref_state is not None and ref_state["state"] == "trashed":
@@ -676,7 +682,8 @@ def row(store: SqliteStore, catalog: Catalog, record: Record, viewer: str | None
     Decoding is not part of the label: `draft`, `decoding` and `runtime` are separate config columns.
 
     `state` is "active", "redo" or "trashed"; `problems` lists why the row may be invalid ("redo",
-    "trashed", "retracted", "reference_trashed"); `projects` lists the viewer's projects that link the record.
+    "trashed", "retracted" (only for viewers other than the owner), "reference_trashed");
+    `projects` lists the viewer's projects that link the record.
     """
     state = store.state(record.record_id)
     comparisons = store.comparisons(record.record_id)
@@ -729,7 +736,7 @@ def row(store: SqliteStore, catalog: Catalog, record: Record, viewer: str | None
         "submitted_via": record.submitted_via,
         "run_key": record.run_key,
         "state": "active" if state is None else state["state"],
-        "problems": _problems(store, record, state, comparisons["reference"]),
+        "problems": _problems(store, record, state, comparisons["reference"], viewer),
         "projects": [p for p in store.projects_of(record.record_id) if p in mine],
         "record": record.model_dump(mode="json"),
     }
@@ -778,21 +785,36 @@ def _owned(store: SqliteStore, actor: Actor, record_id: str) -> Record:
 
 
 def publish(store: SqliteStore, actor: Actor, record_id: str) -> None:
-    record = _owned(store, actor, record_id)
+    """Share a private or retracted record in the lab pool (visibility public).
+
+    ServiceError 403 for a token without publish rights or a non-owner.
+    """
+    _owned(store, actor, record_id)
     if not actor.can_publish:
         raise ServiceError(
             403, "this token cannot publish; publish from the UI or use a token with publish rights"
         )
-    if record.visibility == Visibility.RETRACTED:
-        raise ServiceError(409, "retracted records stay retracted")
     store.set_visibility(record_id, Visibility.PUBLIC)
 
 
-def retract(store: SqliteStore, actor: Actor, record_id: str) -> None:
+def retract(store: SqliteStore, actor: Actor, record_id: str) -> str:
+    """Take a record out of the lab pool; the owner's own views are unaffected.
+
+    Returns "private" when nobody else depends on the record, else "retracted": the record stays listed in
+    the pool, flagged as retracted for other viewers. Someone else depends on it when another user's untrashed
+    record compares against it or a project that the owner is not a member of links it.
+    A retracted record is re-evaluated the same way. ServiceError 409 for a private record.
+    """
     record = _owned(store, actor, record_id)
-    if record.visibility != Visibility.PUBLIC:
-        raise ServiceError(409, "only public records can be retracted; private records are simply not shared")
-    store.set_visibility(record_id, Visibility.RETRACTED)
+    if record.visibility == Visibility.PRIVATE:
+        raise ServiceError(409, "only records in the lab pool can be taken out of it")
+    foreign_comparison = any(r.owner != record.owner for r in store.comparing_against(record_id))
+    foreign_project = any(
+        record.owner not in store.project(name)["members"] for name in store.projects_of(record_id)
+    )
+    outcome = Visibility.RETRACTED if foreign_comparison or foreign_project else Visibility.PRIVATE
+    store.set_visibility(record_id, outcome)
+    return outcome.value
 
 
 def annotate(

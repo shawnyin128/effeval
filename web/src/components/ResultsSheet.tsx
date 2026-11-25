@@ -204,7 +204,7 @@ export function ResultsSheet({ rows, scope, field, onChanged }: {
           status={t("{n} rows", { n: visibleRows.length })}
         />
         {selected && scope !== "preview" && (
-          <RecordPanel row={selected} project={project} onClose={() => setSelectedId(null)} onChanged={onChanged} />
+          <RecordPanel row={selected} project={project} inPool={scope === "pool"} onClose={() => setSelectedId(null)} onChanged={onChanged} />
         )}
       </div>
     </div>

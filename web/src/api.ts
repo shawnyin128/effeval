@@ -479,7 +479,7 @@ export const api = {
     call<Row[]>("GET", `/api/records?${new URLSearchParams({ scope, ...filters })}`),
   record: (id: string) => call<Row>("GET", `/api/records/${id}`),
   publish: (id: string) => call("POST", `/api/records/${id}/publish`),
-  retract: (id: string) => call("POST", `/api/records/${id}/retract`),
+  retract: (id: string) => call<{ unshared: "private" | "retracted" }>("POST", `/api/records/${id}/retract`),
   annotate: (id: string, body: { tags: string[]; note: string; status: string }) =>
     call("PATCH", `/api/records/${id}/annotation`, body),
   previewBundle: (text: string) => call<{ rows: Row[] }>("POST", "/api/bundles/preview", text, true),

@@ -13,7 +13,8 @@ class ReuseLookup(Protocol):
     ) -> Record | None:
         """Newest record with this RunKey that has every artifact in `need`.
 
-        Only records visible to `viewer` (own or public), never retracted or probe, and marked reusable count;
+        Only records visible to `viewer` (own or public), never probe or another owner's retracted record, and
+        marked reusable count;
         restricted to `hardware` when given.
         """
         ...

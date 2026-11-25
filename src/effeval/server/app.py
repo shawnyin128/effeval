@@ -637,9 +637,8 @@ def create_app(data_dir: Path, web_dist: Path | None = None, public_url: str | N
         return {"ok": True}
 
     @app.post("/api/records/{record_id}/retract")
-    def retract(record_id: str, actor: Actor = Depends(current)) -> dict[str, bool]:
-        service.retract(store, actor, record_id)
-        return {"ok": True}
+    def retract(record_id: str, actor: Actor = Depends(current)) -> dict[str, Any]:
+        return {"ok": True, "unshared": service.retract(store, actor, record_id)}
 
     # models -------------------------------------------------------------------------------------------------
 
