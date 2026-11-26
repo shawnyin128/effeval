@@ -357,6 +357,7 @@ class FakeBackend:
             "device": "nowhere",
             "timing": "reported by the backend",
             "temperature": None,
+            "sampling": None,
         }
 
     def generate(self, prompt_ids, max_new_tokens):
@@ -473,8 +474,10 @@ class FakeEngineClient:
         return EngineReply([1, 2, 3], 0.25, *counters)
 
 
-def engine_backend(fake_set, client=None, *, role=0, capacity=None, do_sample=False):
+def engine_backend(fake_set, client=None, *, role=0, capacity=None, do_sample=False, seed=None):
     job = fake_set[role].spec
+    if seed is not None:
+        job = job.model_copy(update={"determinism": job.determinism.model_copy(update={"seed": seed})})
     if capacity is not None:
         runtime = job.runtime.model_copy(update={"static_cache_tokens": capacity})
         job = job.model_copy(update={"runtime": runtime})
@@ -539,9 +542,17 @@ def test_spec_bench_deviations_on_an_engine_omit_determinism(fake_set, monkeypat
     assert hf_result.protocol["deviations_from_spec_bench"] == list(speed.SPEC_BENCH_DEVIATIONS)
 
 
-def test_engine_backend_refuses_sampling(fake_set):
-    with pytest.raises(ValueError, match="do_sample"):
-        engine_backend(fake_set, do_sample=True)
+def test_engine_backend_reports_sampling(fake_set):
+    backend, job = engine_backend(fake_set, do_sample=True, seed=11)
+    assert backend.sampled
+    result = speed.evaluate(backend, job, builtin_catalog().tasks["speed/fake"])
+    assert result.protocol["temperature"] == 0.7
+    assert result.protocol["sampling"] == {"temperature": 0.7, "top_p": None, "top_k": None, "seed": 11}
+    assert [s.scores["sampled"] for s in result.samples] == [1.0] * len(result.samples)
+    greedy, greedy_job = engine_backend(fake_set)
+    greedy_result = speed.evaluate(greedy, greedy_job, builtin_catalog().tasks["speed/fake"])
+    assert greedy_result.protocol["sampling"] is None and greedy_result.protocol["temperature"] is None
+    assert [s.scores["sampled"] for s in greedy_result.samples] == [0.0] * len(greedy_result.samples)
 
 
 def test_an_unknown_handle_is_a_type_error(fake_set):
@@ -986,6 +997,46 @@ def in_process_backend(tiny, tiny_set, *, eos=None, config_eos=None, speculative
 
 
 PROMPT_IDS = [5, 9, 3, 7, 2, 4]
+
+
+def sampled_backend(tiny, tiny_set, seed, **generation):
+    """An autoregressive InProcessBackend whose job samples with `generation` settings and `seed`."""
+    from effeval.evaluators._speed_inprocess import InProcessBackend
+
+    plain, _ = speculative_handles(tiny)
+    job = tiny_set[1].spec
+    update = {"do_sample": True, "temperature": 5.0, **generation}
+    job = job.model_copy(
+        update={
+            "generation": job.generation.model_copy(update=update),
+            "determinism": job.determinism.model_copy(update={"seed": seed}),
+        }
+    )
+    handle = replace(plain, tokenizer=SimpleNamespace(eos_token_id=None))
+    return InProcessBackend(handle, job)
+
+
+@pytest.mark.compute
+def test_a_sampled_job_samples_with_its_settings_and_a_generator_seeded_with_its_seed(tiny, tiny_set):
+    backend = sampled_backend(tiny, tiny_set, 7, top_p=0.99, top_k=40)
+    sampler = backend._sampler
+    assert backend.sampled
+    assert (sampler.temperature, sampler.top_p, sampler.top_k) == (5.0, 0.99, 40)
+    assert sampler.generator.initial_seed() == 7
+    assert backend.describe()["sampling"] == {"temperature": 5.0, "top_p": 0.99, "top_k": 40, "seed": 7}
+    assert backend.describe()["temperature"] == 5.0
+    first = backend.generate(PROMPT_IDS, 24).output_ids
+    again = sampled_backend(tiny, tiny_set, 7, top_p=0.99, top_k=40).generate(PROMPT_IDS, 24).output_ids
+    other = sampled_backend(tiny, tiny_set, 8, top_p=0.99, top_k=40).generate(PROMPT_IDS, 24).output_ids
+    assert first == again
+    assert first != other
+
+
+@pytest.mark.compute
+def test_a_greedy_job_has_a_greedy_sampler_and_no_sampling_entry(tiny, tiny_set, monkeypatch):
+    backend = in_process_backend(tiny, tiny_set, monkeypatch=monkeypatch)
+    assert not backend.sampled and backend._sampler.greedy
+    assert backend.describe()["sampling"] is None and backend.describe()["temperature"] is None
 
 
 def first_new_tokens(tiny, tiny_set, monkeypatch, n=24):

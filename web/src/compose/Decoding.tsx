@@ -78,11 +78,11 @@ export function Decoding({ spec, describe, update, err }: {
       <p className="small muted mt-3">
         {t("The draft proposes k tokens per step and the target verifies them; results are compared with the target's own autoregressive decoding.")}
       </p>
-      <p className="small muted mt-3">{t("Verification is greedy for now.")}</p>
+      <p className="small muted mt-3">{t("Speed tasks may sample (do_sample); other tasks verify greedily.")}</p>
       {engine && (
         <div className="small muted mt-3">
           <div>{t("{provider} runs speed tasks (speed/…) only.", { provider })}</div>
-          <div>{t("Greedy decoding only (do_sample false).")}</div>
+          <div>{t("Sampling on speed tasks: the draft samples at the temperature only (vLLM) or greedily (SGLang).")}</div>
           <div>{t("One GPU per run.")}</div>
           <div>{t("No effeval methods or preprocessing: plain checkpoints.")}</div>
           {targetDtype && <div>{t("The draft runs in the target's precision: {dtype}.", { dtype: targetDtype })}</div>}

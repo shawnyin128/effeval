@@ -75,10 +75,15 @@ class ModelDrafter:
         rows: list[torch.Tensor] = []
         for _ in range(k):
             logits = self.model.feed(current, None, 1)[-1]
-            token = sampler.pick(logits)
+            if sampler.greedy:
+                token = sampler.pick(logits)
+                row = sampler.probs(logits) if with_probs else None
+            else:
+                row = sampler.probs(logits)
+                token = sampler.draw(row)
             tokens.append(token)
             if with_probs:
-                rows.append(sampler.probs(logits))
+                rows.append(row)
             step = torch.tensor([[token]], dtype=current.dtype, device=current.device)
             current = torch.cat([current, step], dim=1)
         return Proposal(tokens, torch.stack(rows) if with_probs else None)

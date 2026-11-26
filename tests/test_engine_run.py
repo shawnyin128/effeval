@@ -88,7 +88,7 @@ def engine_env(monkeypatch, tmp_path):
     return modes
 
 
-def plan_for(model_dirs, runtime=None):
+def plan_for(model_dirs, runtime=None, **extra):
     target, _ = model_entry(model_dirs["target"], None)
     draft, _ = model_entry(model_dirs["draft"], None)
     catalog = builtin_catalog()
@@ -106,6 +106,7 @@ def plan_for(model_dirs, runtime=None):
         },
         "hardware": {"gpu": "H100-SXM"},
         "runtime": runtime or {"name": "vllm"},
+        **extra,
     }
     plan, issues = freeze(raw, catalog, owner=None, server=None, lookup=None)
     assert plan is not None, issues
@@ -266,7 +267,38 @@ def test_worker_config_follows_the_job_spec(engine_env, model_dirs):
         "revision": main.decoding.draft.model.revision,
     }
     assert config["seed"] == main.determinism.seed
+    assert config["sampling"] is None
     assert config["library"] == "vllm==0.32.0"
     ar = engine_prepare.worker_config(reference, frozenset({3}))
     assert ar["draft"] is None and ar["num_speculative_tokens"] is None
     assert ar["context_length"] == 513
+    _, sampled_plan = plan_for(
+        model_dirs,
+        runtime=runtime,
+        generation={"do_sample": True, "temperature": 0.8, "top_p": 0.9, "top_k": 5},
+    )
+    sampled = next(job for job in sampled_plan.jobs if job.role == "main").spec
+    assert engine_prepare.worker_config(sampled, frozenset({3}))["sampling"] == {
+        "temperature": 0.8,
+        "top_p": 0.9,
+        "top_k": 5,
+    }
+
+
+def test_sampled_engine_runs_start_one_engine_per_seed(engine_env, model_dirs, tmp_path):
+    catalog, plan = plan_for(
+        model_dirs, generation={"do_sample": True, "top_p": 0.9}, repeats={"seeds": [3, 5]}
+    )
+    assert len(plan.jobs) == 4
+    outcome = run(catalog, plan, tmp_path)
+    assert outcome.failed == []
+    files, pid_list = pids(tmp_path)
+    assert len(files) == 4 and len(pid_list) == 4
+    assert len(list((tmp_path / "out").glob("*/engine-*"))) == 4
+    for job in plan.jobs:
+        record = run_module.saved_record(tmp_path / "out", job.job_id)
+        assert record.protocol["engine"]["engine_seed"] == job.spec.determinism.seed
+        assert record.protocol["engine"]["config"]["sampling"]["top_p"] == 0.9
+        assert record.protocol["sampling"]["seed"] == job.spec.determinism.seed
+    assert sorted(j.spec.determinism.seed for j in plan.jobs) == [3, 3, 5, 5]
+    assert_all_gone(pid_list)

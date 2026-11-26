@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from effeval.core.spec import JobSpec
+from effeval.core.spec import JobSpec, SamplingSettings
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,8 @@ class SpeedBackend(Protocol):
     """Whether generation samples instead of decoding greedily."""
 
     def describe(self) -> dict[str, Any]:
-        """Protocol entries of this backend: `decoder`, `device`, `timing` and `temperature`.
+        """Protocol entries of this backend: `decoder`, `device`, `timing`, `temperature` and
+        `sampling` (None when greedy, else `temperature`, `top_p`, `top_k` and `seed`).
 
         Optional keys: `decode_cache` (copied into the protocol) and `torch_determinism` (bool, default true;
         false when the backend does not run under effeval's torch determinism settings).
@@ -73,6 +74,18 @@ class SpeedBackend(Protocol):
         """Peak memory in GB since `reset_peak_memory`, summed over every device the backend uses, or None
         when the backend cannot tell."""
         ...
+
+
+def sampling_description(settings: SamplingSettings | None, seed: int) -> dict[str, Any] | None:
+    """The protocol's `sampling` entry: None for greedy decoding, else the settings and the job's seed."""
+    if settings is None:
+        return None
+    return {
+        "temperature": settings.temperature,
+        "top_p": settings.top_p,
+        "top_k": settings.top_k,
+        "seed": seed,
+    }
 
 
 def decoder_description(job: JobSpec) -> str | dict[str, Any]:

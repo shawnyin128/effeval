@@ -53,7 +53,7 @@ WEIGHT_HEADROOM = 1.15
 GPU_USABLE_BYTES = 44 * GIB
 """Weights in 16 bits plus 15% headroom must fit in 44 GiB per GPU (a 48 GB card)."""
 
-GENERATION_ONLY_KEYS = ("do_sample", "temperature", "max_new_tokens")
+GENERATION_ONLY_KEYS = ("do_sample", "temperature", "max_new_tokens", "top_p", "top_k")
 GENERATION_TASK_KEYS = ("max_new_tokens", "do_sample", "temperature")
 
 
@@ -782,6 +782,43 @@ def _check_static_cache_capacity(
             )
 
 
+def _samples(spec: RunSpec, plan: TaskPlan) -> bool:
+    """Whether the task samples: its own do_sample, else the run-level one."""
+    return spec.generation.do_sample if plan.do_sample is None else plan.do_sample
+
+
+def _check_sampling(spec: RunSpec, res: Resolution) -> None:
+    """top_p / top_k need sampling and only speed tasks pass them; repeats of a sampled run share a seed."""
+    sampling = [(index, plan) for index, plan in enumerate(res.tasks) if _samples(spec, plan)]
+    for key in ("top_p", "top_k"):
+        if getattr(spec.generation, key) is None:
+            continue
+        if not sampling:
+            res.error(
+                "generation.filter_needs_sampling",
+                f"generation.{key} needs do_sample on",
+                [f"generation.{key}"],
+                hint="turn on generation.do_sample, or remove it",
+            )
+    if spec.generation.top_p is not None or spec.generation.top_k is not None:
+        for index, plan in sampling:
+            if plan.mode != Mode.SPEED:
+                res.error(
+                    "generation.filter_speed_only",
+                    f"{plan.task.name}: top_p/top_k apply to speed tasks only; "
+                    f"{plan.evaluator.name} does not pass them",
+                    ["generation.top_p", "generation.top_k", f"tasks[{index}]"],
+                )
+    repeats = spec.repeats
+    if sampling and repeats.seeds is None and repeats.count is not None and repeats.count > 1:
+        res.note(
+            "repeats.sampled_same_seed",
+            f"every repeat uses seed {spec.determinism.seed}, so sampled runs repeat the same tokens and "
+            "differ only in timing; use repeats.seeds for independent samples",
+            ["repeats.count"],
+        )
+
+
 def _check_speculative(spec: RunSpec, entry: ModelEntry, catalog: Catalog, res: Resolution) -> None:
     decoding = spec.decoding
     if decoding.draft is None:
@@ -808,12 +845,13 @@ def _check_speculative(spec: RunSpec, entry: ModelEntry, catalog: Catalog, res: 
                 [f"tasks[{index}]", "decoding.mode"],
             )
             continue
-        if spec.generation.do_sample if plan.do_sample is None else plan.do_sample:
+        if plan.mode != Mode.SPEED and _samples(spec, plan):
             res.error(
                 "decoding.sampling_unavailable",
-                "speculative sampling is not available yet; only greedy verification is",
+                "speculative sampling is available on speed tasks (speed/<prompt set>) only; "
+                f"{plan.task.name} decodes greedily under speculative decoding",
                 ["generation.do_sample", f"tasks[{index}].params.do_sample"],
-                hint="use do_sample false",
+                hint="set do_sample false for this task",
             )
     draft = decoding.draft
     if draft is None:
@@ -867,14 +905,19 @@ def _check_engine_runtime(raw: dict[str, Any], spec: RunSpec, catalog: Catalog, 
             f"runtime.attn_implementation only applies to the hf runtime, not {runtime}",
             ["runtime.attn_implementation"],
         )
-    for index, plan in enumerate(res.tasks):
-        if spec.generation.do_sample if plan.do_sample is None else plan.do_sample:
-            res.error(
-                "runtime.sampling_later",
-                f"sampling is not available on the {runtime} runtime yet; only greedy decoding is",
-                ["generation.do_sample", f"tasks[{index}].params.do_sample"],
-                hint="use do_sample false",
-            )
+    if (
+        runtime == "sglang"
+        and spec.generation.top_k is not None
+        and spec.generation.top_p is not None
+        and any(_samples(spec, plan) for plan in res.tasks)
+    ):
+        res.error(
+            "runtime.sampling_filters",
+            "SGLang filters top_k and top_p jointly for plain decoding but one after the other when "
+            "verifying drafts, so the two runs would sample different distributions; "
+            "set only one of them",
+            ["generation.top_k", "generation.top_p"],
+        )
     if res.draft_model is not None and res.model is not None and res.draft_model.dtype != res.model.dtype:
         res.error(
             "runtime.draft_dtype",
@@ -1084,6 +1127,7 @@ def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
     if defaults:
         spec = res.spec = spec.model_copy(update={"generation": spec.generation.model_copy(update=defaults)})
     _check_decoding(raw, spec, entry, catalog, res)
+    _check_sampling(spec, res)
 
     if spec.hardware.gpu is not None and catalog.gpu(spec.hardware.gpu) is None:
         res.error(

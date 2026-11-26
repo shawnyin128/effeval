@@ -8,7 +8,14 @@ from effeval.runtime.speculative.loop import (
     DecodeStats,
     SpeculativeDecoder,
 )
-from effeval.runtime.speculative.rules import AcceptanceRule, GreedyAcceptance, Proposal, TokenSampler
+from effeval.runtime.speculative.rules import (
+    AcceptanceRule,
+    GreedyAcceptance,
+    Proposal,
+    SpeculativeSampling,
+    TokenSampler,
+    residual_distribution,
+)
 from effeval.runtime.speculative.state import CachedModel
 from effeval.runtime.speculative.static import StaticCachedModel, StaticCacheSettings
 
@@ -24,7 +31,9 @@ __all__ = [
     "ModelDrafter",
     "Proposal",
     "SpeculativeDecoder",
+    "SpeculativeSampling",
     "StaticCacheSettings",
     "StaticCachedModel",
     "TokenSampler",
+    "residual_distribution",
 ]

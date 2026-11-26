@@ -10,7 +10,7 @@ import torch
 from transformers import AutoTokenizer, GenerationConfig
 
 from effeval.core.engines import ENGINES
-from effeval.core.spec import JobSpec
+from effeval.core.spec import JobSpec, sampling_settings
 from effeval.core.types import EngineHandle
 from effeval.runtime.engines.client import EngineClient
 from effeval.runtime.hf import stop_token_ids
@@ -21,6 +21,11 @@ COUNTERS = {
     "vllm": "per-request deltas of vllm:spec_decode_num_drafts / num_draft_tokens / num_accepted_tokens "
     "from LLM.get_metrics()",
     "sglang": "meta_info spec_verify_ct / spec_num_proposed_drafts / spec_num_correct_drafts",
+}
+DRAFT_SAMPLING = {
+    "vllm": "probabilistic at the request temperature (vLLM ignores top_k/top_p for drafts); verification "
+    "uses the draft's distribution",
+    "sglang": "greedy argmax draft, verified as a one-hot proposal",
 }
 COUNTER_NOTE = (
     "; rounds and proposed are the engine's counts (k drafts per round, fewer where the engine limits "
@@ -35,6 +40,7 @@ def worker_config(spec: JobSpec, stop_ids: frozenset[int]) -> dict[str, Any]:
     """The worker's configuration for `spec`; `draft` and `num_speculative_tokens` are None for autoregressive
     decoding. The engine context length is `runtime.static_cache_tokens` plus one."""
     decoding = spec.decoding
+    sampling = sampling_settings(spec.generation)
     return {
         "engine": spec.runtime.name,
         "library": ENGINES[spec.runtime.name].library,
@@ -50,6 +56,7 @@ def worker_config(spec: JobSpec, stop_ids: frozenset[int]) -> dict[str, Any]:
         if decoding is None
         else {"model": decoding.draft.model.checkpoint, "revision": decoding.draft.model.revision},
         "num_speculative_tokens": None if decoding is None else decoding.num_speculative_tokens,
+        "sampling": None if sampling is None else sampling.model_dump(mode="json"),
     }
 
 
@@ -98,6 +105,7 @@ def prepare_engine(spec: JobSpec, workdir: Path) -> tuple[EngineHandle, dict[str
             "torch": ready["torch"],
             "cuda": ready["cuda"],
             "counters": COUNTERS[name] + COUNTER_NOTE,
+            "draft_sampling": DRAFT_SAMPLING[name] if config["draft"] and config["sampling"] else None,
             "not_reported": {
                 "ttft_ms": "not measured by the engine worker",
                 "peak_memory_gb": "the engine preallocates gpu_memory_fraction of the GPU",

@@ -173,6 +173,12 @@ def test_token_sampler():
     assert torch.allclose(probs, torch.softmax(logits / 0.5, dim=-1))
     first = [TokenSampler(0.5, torch.Generator().manual_seed(3)).pick(logits) for _ in range(5)]
     assert len(set(first)) == 1
+    for kwargs in ({"top_p": 0.5}, {"top_k": 2}):
+        with pytest.raises(ValueError):
+            TokenSampler(None, **kwargs)
+    for kwargs in ({"top_p": 1.0}, {"top_p": 0.0}, {"top_k": 0}):
+        with pytest.raises(ValueError):
+            TokenSampler(1.0, **kwargs)
 
 
 @pytest.mark.parametrize("scale", NOISE_SCALES)

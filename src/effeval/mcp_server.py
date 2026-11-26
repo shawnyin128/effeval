@@ -69,6 +69,8 @@ Each job is compared with plain
 autoregressive decoding of the same target on the same provider, which runs as its reference. A table row
 takes "decoding" and "runtime" like a RunSpec; the draft model, k and provider are config columns of rows and
 records ("draft", "decoding", "runtime"), not part of the method label.
+Speed tasks may sample under speculative decoding (generation.do_sample, temperature, top_p, top_k);
+every other task decodes greedily. For independent sampled runs use repeats.seeds.
 """
 
 DESCRIPTION_CHARS = 160

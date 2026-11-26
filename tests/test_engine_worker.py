@@ -16,10 +16,11 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "effeval"
 WORKER_FILE = SRC / "runtime" / "engines" / "worker.py"
 
 STOP_IDS = [151643, 151645]
+SAMPLING = {"temperature": 0.7, "top_p": 0.9, "top_k": None}
 DRAFT = {"model": "Qwen/Qwen3-0.6B", "revision": "draft-sha"}
 
 
-def make_config(engine, speculative, cuda_graphs=True):
+def make_config(engine, speculative, cuda_graphs=True, sampling=None):
     return {
         "engine": engine,
         "library": f"{engine}==1.0.0",
@@ -33,6 +34,7 @@ def make_config(engine, speculative, cuda_graphs=True):
         "stop_ids": STOP_IDS,
         "draft": DRAFT if speculative else None,
         "num_speculative_tokens": 4 if speculative else None,
+        "sampling": sampling,
     }
 
 
@@ -61,6 +63,9 @@ def test_vllm_kwargs_ar_and_speculative():
             "draft_sample_method": "greedy",
         },
     }
+    sampled = worker.vllm_kwargs(make_config("vllm", True, sampling=SAMPLING))
+    assert sampled["speculative_config"]["draft_sample_method"] == "probabilistic"
+    assert {k: v for k, v in sampled.items() if k != "speculative_config"} == base
 
 
 def test_sglang_kwargs_ar_and_speculative():
@@ -197,6 +202,22 @@ def test_vllm_sampling_params_and_prompt_shape(monkeypatch):
     assert fake.llm_kwargs == worker.vllm_kwargs(make_config("vllm", True))
     assert engine.resolved() == "CONFIG TEXT"
 
+    sampled_fake = FakeVllm([snapshot(0, 0, 0, 0), snapshot(1, 4, 4, 0)])
+    install(monkeypatch, "vllm", sampled_fake)
+    sampled = worker.VllmEngine(make_config("vllm", True, sampling=SAMPLING))
+    sampled.generate([11, 12, 13], 64, lambda: 0.0)
+    assert sampled_fake.sampling_calls == [
+        {
+            "max_tokens": 64,
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "top_k": 0,
+            "seed": 3,
+            "stop_token_ids": STOP_IDS,
+            "detokenize": False,
+        }
+    ]
+
 
 class FakeSglang:
     def __init__(self, meta, events=None):
@@ -242,6 +263,20 @@ def test_sglang_meta_info_mapping(monkeypatch):
         }
     ]
     assert engine.resolved() == "SERVER ARGS"
+
+    sampled_fake = FakeSglang(spec_meta)
+    install(monkeypatch, "sglang", sampled_fake)
+    sampled = worker.SglangEngine(make_config("sglang", True, sampling={**SAMPLING, "top_k": 20}))
+    sampled.generate([1, 2, 3], 32, lambda: 0.0)
+    (call,) = sampled_fake.calls
+    assert call["sampling_params"] == {
+        "max_new_tokens": 32,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "top_k": 20,
+        "stop_token_ids": STOP_IDS,
+    }
+    assert "sampling_seed" not in call["sampling_params"]
 
     fake.meta = {"cached_tokens": 3}
     reply = engine.generate([1], 8, lambda: 0.0)

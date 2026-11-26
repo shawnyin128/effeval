@@ -262,6 +262,7 @@ def evaluate(backend: SpeedBackend, job: JobSpec, task: TaskDef) -> QualityResul
         "decoder": described["decoder"],
         "max_new_tokens": max_new_tokens,
         "temperature": described["temperature"],
+        "sampling": described["sampling"],
         "categories": categories,
     }
     if "decode_cache" in described:

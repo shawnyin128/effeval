@@ -1,5 +1,7 @@
 """Speculative decoding in the schema: RunSpec.decoding, runtime providers, the speed mode, keys and plans."""
 
+import hashlib
+
 import pytest
 from pydantic import Field
 
@@ -70,7 +72,7 @@ def _catalog(*, handles=frozenset({HandleKind.IN_PROCESS, HandleKind.ENGINE}), f
 @pytest.fixture(autouse=True)
 def _speed_comparatives(monkeypatch):
     """The speed comparatives are implemented elsewhere; the field names them, so register stand-ins."""
-    for name in ("speedup", "output_match"):
+    for name in ("speedup", "output_match", "multi_turn_prompt_match"):
         monkeypatch.setitem(
             COMPARATIVE,
             name,
@@ -196,6 +198,19 @@ def test_decoding_sampling_unavailable_run_level_and_task_level():
     task_level = spec(tasks=[{"name": "lm_eval/gsm8k", "params": {"do_sample": True}}])
     for raw in (run_level, task_level):
         assert "decoding.sampling_unavailable" in check(raw)
+        issue = next(i for i in validate(raw, _catalog()) if i.code == "decoding.sampling_unavailable")
+        assert "speed tasks" in issue.message
+
+
+def test_speculative_sampling_is_allowed_on_speed_tasks_and_the_reference_samples_alike():
+    raw = speed_spec(generation={"do_sample": True})
+    assert check(raw) == []
+    plan, _ = frozen(raw)
+    main, reference = role(plan, "main"), role(plan, "reference")
+    assert main.spec.decoding.verification == "sampling"
+    assert reference.spec.decoding is None
+    assert reference.spec.generation == main.spec.generation and main.spec.generation.do_sample
+    assert reference.spec.determinism.seed == main.spec.determinism.seed
 
 
 def test_decoding_batch_size():
@@ -331,15 +346,12 @@ def test_engine_run_key_depends_on_cuda_graphs_and_capacity():
         assert all(a != b for a, b in zip(base, changed, strict=True))
 
 
-def test_sampling_is_rejected_on_an_engine_for_the_run_and_for_a_task():
-    assert "runtime.sampling_later" in check(
-        speed_spec(runtime={"name": "vllm"}, decoding=None, generation={"do_sample": True})
-    )
+def test_sampling_is_accepted_on_an_engine_for_the_run_and_for_a_task():
+    assert check(speed_spec(runtime={"name": "vllm"}, decoding=None, generation={"do_sample": True})) == []
     task = {"name": "speed/spec_bench", "params": {"do_sample": True}}
-    assert "runtime.sampling_later" in check(
-        spec(tasks=[task], hardware={"gpu": "H100-SXM"}, runtime={"name": "sglang"}, decoding=None)
-    )
-    assert "runtime.sampling_later" not in check(speed_spec(runtime={"name": "vllm"}, decoding=None))
+    raw = spec(tasks=[task], hardware={"gpu": "H100-SXM"}, runtime={"name": "sglang"}, decoding=None)
+    assert check(raw) == []
+    assert check(speed_spec(runtime={"name": "vllm"}, generation={"do_sample": True})) == []
 
 
 def test_a_draft_dtype_different_from_the_target_is_an_error_on_engines_only():
@@ -371,6 +383,8 @@ def test_output_match_is_dropped_from_sampled_jobs():
     plan, issues = frozen(spec(decoding=None, generation={"do_sample": True}))
     assert "output_match" not in role(plan, "main").compare
     assert "compare.output_match_dropped" in codes(issues, "info")
+    assert "multi_turn_prompt_match" not in role(plan, "main").compare
+    assert "compare.multi_turn_prompt_match_dropped" in codes(issues, "info")
     greedy = role(frozen(spec(decoding=None))[0], "main")
     assert "output_match" in greedy.compare
 
@@ -385,3 +399,121 @@ def test_the_draft_model_entry_travels_with_the_plan_when_it_is_not_builtin():
     plan, _ = frozen(raw, catalog)
     assert set(plan.models) == {"tiny-draft"}
     assert frozen(spec())[0].models == {}
+
+
+def _sha(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _key_pairs(raw):
+    return {j.role: (j.run_key, _sha(model_group_key(j))) for j in frozen(raw)[0].jobs}
+
+
+def test_greedy_keys_are_unchanged_by_the_sampling_fields():
+    assert _key_pairs(speed_spec()) == {
+        "reference": (
+            "rk_2ab79118a5e781555aa903b62dfbdb4aaebdc95f25126e264c7b21ce4725448a",
+            "91fec4b84b4592f93c4a245cc7746266fb45d3410712890a314dfc1c8ab9230d",
+        ),
+        "main": (
+            "rk_1f7c3cdac08104f596a9981475fd64d54eab440d649ac3f697ce3926b3ce222b",
+            "7504b5072c5112104152bd6cd249ae31f29b45f1c8bdc296c10dfaede790ba50",
+        ),
+    }
+    assert _key_pairs(speed_spec(runtime={"name": "vllm"})) == {
+        "reference": (
+            "rk_8dabb56164775ed1254b77d74387a7a57d941d3d903f2cbd035ea3f7cc2ff46e",
+            "b98dabced241af353e278787d29ead39e1a28f3bab82b2385c6c5035453ee4f2",
+        ),
+        "main": (
+            "rk_240eae67befadbad181371cae0c4cb69afa1327ccf8a4d5d9057fdb84215571d",
+            "fc1a4ce3c77ed36a34874ccff8a5a52829b573768b48798158aa0c9d2fb10dac",
+        ),
+    }
+    assert _key_pairs(speed_spec(generation={"do_sample": True}, decoding=None)) == {
+        "main": (
+            "rk_6c7792bd031af62c74418fa360e6606193fa067e03e2082a32ba091b5f73579f",
+            "91fec4b84b4592f93c4a245cc7746266fb45d3410712890a314dfc1c8ab9230d",
+        ),
+    }
+    plain = role(frozen(speed_spec(generation={"do_sample": True}))[0], "main")
+    filtered = role(frozen(speed_spec(generation={"do_sample": True, "top_p": 0.9}))[0], "main")
+    assert plain.run_key != filtered.run_key
+
+
+def test_top_p_top_k_rules():
+    assert "generation.filter_needs_sampling" in check(speed_spec(generation={"top_p": 0.9}))
+    assert "generation.filter_needs_sampling" in check(speed_spec(generation={"top_k": 5}))
+    raw = spec(decoding=None, generation={"do_sample": True, "top_k": 5})
+    assert "generation.filter_speed_only" in check(raw)
+    for bad in ({"top_p": 1.0}, {"top_p": 0.0}, {"top_k": 0}):
+        with pytest.raises(ValueError):
+            RunSpec.model_validate(speed_spec(generation={"do_sample": True, **bad}))
+        assert "spec.invalid" in check(speed_spec(generation={"do_sample": True, **bad}))
+    assert check(speed_spec(generation={"do_sample": True, "top_p": 0.9, "top_k": 5})) == []
+
+
+def test_a_task_that_does_not_sample_gets_no_top_p_or_top_k():
+    other = SPEED_TASK.model_copy(update={"name": "speed/other"})
+    catalog = _catalog()
+    catalog = catalog.model_copy(update={"tasks": {**catalog.tasks, other.name: other}})
+    off = {"name": "speed/spec_bench", "params": {"do_sample": False}}
+    raw = spec(
+        tasks=[off, "speed/other"],
+        hardware={"gpu": "H100-SXM"},
+        generation={"do_sample": True, "top_p": 0.9},
+    )
+    plan, _ = frozen(raw, catalog)
+    mains = {j.spec.task.name: j.spec.generation for j in plan.jobs if j.role == "main"}
+    assert mains["speed/spec_bench"].top_p is None and not mains["speed/spec_bench"].do_sample
+    assert mains["speed/other"].top_p == 0.9
+
+
+def test_repeats_seeds_give_one_reference_per_seed():
+    plan, _ = frozen(speed_spec(generation={"do_sample": True}, repeats={"seeds": [3, 5]}))
+    mains = [j for j in plan.jobs if j.role == "main"]
+    references = {j.run_key: j for j in plan.jobs if j.role == "reference"}
+    assert len(mains) == 2 and len(references) == 2
+    assert sorted(j.spec.determinism.seed for j in mains) == [3, 5]
+    for main in mains:
+        reference = references[main.reference_key]
+        assert reference.spec.determinism.seed == main.spec.determinism.seed
+
+
+def test_sampled_engine_jobs_group_per_seed_and_settings():
+    plan, _ = frozen(
+        speed_spec(runtime={"name": "vllm"}, generation={"do_sample": True}, repeats={"seeds": [3, 5]})
+    )
+    assert len(plan.jobs) == 4
+    assert len({model_group_key(j) for j in plan.jobs}) == 4
+    other = frozen(
+        speed_spec(
+            runtime={"name": "vllm"}, generation={"do_sample": True, "top_p": 0.9}, repeats={"seeds": [3, 5]}
+        )
+    )[0]
+    assert not {model_group_key(j) for j in plan.jobs} & {model_group_key(j) for j in other.jobs}
+    greedy = _key_pairs(speed_spec(runtime={"name": "vllm"}))
+    assert greedy["main"][1] == "fc1a4ce3c77ed36a34874ccff8a5a52829b573768b48798158aa0c9d2fb10dac"
+    assert greedy["reference"][1] == "b98dabced241af353e278787d29ead39e1a28f3bab82b2385c6c5035453ee4f2"
+
+
+def test_sglang_rejects_top_k_with_top_p_when_sampling():
+    both = {"do_sample": True, "top_p": 0.9, "top_k": 5}
+    assert "runtime.sampling_filters" in check(speed_spec(runtime={"name": "sglang"}, generation=both))
+    for one in ({"top_p": 0.9}, {"top_k": 5}):
+        assert "runtime.sampling_filters" not in check(
+            speed_spec(runtime={"name": "sglang"}, generation={"do_sample": True, **one})
+        )
+    for runtime in ({"name": "vllm"}, {"name": "hf"}):
+        assert "runtime.sampling_filters" not in check(speed_spec(runtime=runtime, generation=both))
+
+
+def test_sampled_count_repeats_get_a_same_seed_note():
+    def notes(**overrides):
+        return codes(validate(speed_spec(**overrides), _catalog()), "info")
+
+    sampled = {"do_sample": True}
+    assert "repeats.sampled_same_seed" in notes(generation=sampled, repeats={"count": 3})
+    assert "repeats.sampled_same_seed" not in notes(generation=sampled, repeats={"seeds": [1, 2, 3]})
+    assert "repeats.sampled_same_seed" not in notes(generation=sampled, repeats={"count": 1})
+    assert "repeats.sampled_same_seed" not in notes(repeats={"count": 3})

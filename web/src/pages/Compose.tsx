@@ -105,13 +105,13 @@ function explain(issue: Issue, t: ReturnType<typeof useT>): string {
     case "decoding.draft_method_later":
       return t("The draft runs as a base model: methods and preprocessing on the draft are not supported yet.");
     case "decoding.sampling_unavailable":
-      return t("Speculative decoding is greedy only for now; set do_sample to false.");
+      return t("Speculative decoding samples on speed tasks only; set do_sample to false for other tasks.");
     case "decoding.no_effect":
       return t("This task is scored by loglikelihood and never decodes, so speculative decoding has no effect. Pick a generation or speed task.");
     case "decoding.batch_size":
       return t("Speculative and timed runs decode one sequence at a time; set Batch size to 1.");
-    case "runtime.sampling_later":
-      return t("vLLM and SGLang run greedy decoding only for now; set do_sample to false.");
+    case "runtime.sampling_filters":
+      return t("SGLang samples plain decoding and draft verification differently when top_k and top_p are both set; set only one.");
     case "runtime.draft_dtype":
       return t("vLLM and SGLang run the draft in the target's precision; give both the same precision.");
     case "runtime.single_gpu":

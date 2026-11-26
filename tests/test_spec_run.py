@@ -31,7 +31,12 @@ from effeval.core.types import Artifact, Mode, QualityResult, Sample  # noqa: E4
 from effeval.ops.introspect import model_entry  # noqa: E402
 from effeval.plan import freeze  # noqa: E402
 from effeval.runtime import hf  # noqa: E402
-from effeval.runtime.speculative import GreedyAcceptance, ModelDrafter, SpeculativeDecoder  # noqa: E402
+from effeval.runtime.speculative import (  # noqa: E402
+    GreedyAcceptance,
+    ModelDrafter,
+    SpeculativeDecoder,
+    SpeculativeSampling,
+)
 from test_spec_schema import SPEED_TASK, _catalog, _speed_comparatives, spec  # noqa: E402, F401
 
 BASE = ResolvedMethod(name="base", version="1", preset=None, config={})
@@ -154,10 +159,10 @@ def test_a_draft_with_another_vocabulary_is_rejected(dirs, draft):
         hf.prepare_speculative(spec, builtin_catalog().manifests)
 
 
-def test_sampling_verification_is_not_implemented_yet(dirs):
+def test_sampling_verification_uses_the_rejection_rule(dirs):
     spec = job_spec(dirs["target"], dirs["draft"], verification="sampling")
-    with pytest.raises(NotImplementedError, match="sampling"):
-        hf.prepare_speculative(spec, builtin_catalog().manifests)
+    handle, _ = hf.prepare_speculative(spec, builtin_catalog().manifests)
+    assert isinstance(handle.decoder.rule, SpeculativeSampling)
 
 
 class Recorder:

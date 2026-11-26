@@ -43,7 +43,7 @@ def vllm_kwargs(config):
             "model": draft["model"],
             "revision": draft["revision"],
             "num_speculative_tokens": config["num_speculative_tokens"],
-            "draft_sample_method": "greedy",
+            "draft_sample_method": "probabilistic" if config.get("sampling") else "greedy",
         }
     return kwargs
 
@@ -97,13 +97,27 @@ class VllmEngine:
         return totals
 
     def generate(self, prompt_ids, max_new_tokens, clock):
-        """Generate greedily; returns output_ids, seconds, stats (None for AR) and cache_hits."""
-        params = self.sampling_params(
-            max_tokens=max_new_tokens,
-            temperature=0.0,
-            stop_token_ids=self.config["stop_ids"],
-            detokenize=False,
-        )
+        """Generate with the config's sampling (greedy when None); returns output_ids, seconds, stats
+        (None for AR) and cache_hits."""
+        sampling = self.config.get("sampling")
+        if sampling is None:
+            params = self.sampling_params(
+                max_tokens=max_new_tokens,
+                temperature=0.0,
+                stop_token_ids=self.config["stop_ids"],
+                detokenize=False,
+            )
+        else:
+            top_p, top_k = sampling["top_p"], sampling["top_k"]
+            params = self.sampling_params(
+                max_tokens=max_new_tokens,
+                temperature=sampling["temperature"],
+                top_p=1.0 if top_p is None else top_p,
+                top_k=0 if top_k is None else top_k,
+                seed=self.config["seed"],
+                stop_token_ids=self.config["stop_ids"],
+                detokenize=False,
+            )
         before = self._counters()
         t0 = clock()
         outputs = self.llm.generate([{"prompt_token_ids": prompt_ids}], params, use_tqdm=False)
@@ -147,12 +161,24 @@ class SglangEngine:
         self.engine = sglang.Engine(**self.kwargs)
 
     def generate(self, prompt_ids, max_new_tokens, clock):
-        """Generate greedily; returns output_ids, seconds, stats (None for AR) and cache_hits."""
-        sampling = {
-            "max_new_tokens": max_new_tokens,
-            "temperature": 0.0,
-            "stop_token_ids": self.config["stop_ids"],
-        }
+        """Generate with the config's sampling (greedy when None); returns output_ids, seconds, stats
+        (None for AR) and cache_hits."""
+        settings = self.config.get("sampling")
+        if settings is None:
+            sampling = {
+                "max_new_tokens": max_new_tokens,
+                "temperature": 0.0,
+                "stop_token_ids": self.config["stop_ids"],
+            }
+        else:
+            top_p, top_k = settings["top_p"], settings["top_k"]
+            sampling = {
+                "max_new_tokens": max_new_tokens,
+                "temperature": settings["temperature"],
+                "top_p": 1.0 if top_p is None else top_p,
+                "top_k": -1 if top_k is None else top_k,
+                "stop_token_ids": self.config["stop_ids"],
+            }
         t0 = clock()
         out = self.engine.generate(input_ids=prompt_ids, sampling_params=sampling)
         seconds = clock() - t0

@@ -79,7 +79,7 @@ metrics:
   - name: mean_accepted_tokens
     label: Tokens/round
     kind: system
-    description: Mean tokens gained per speculative round, 1 + accepted drafts / rounds.
+    description: "Acceptance length: mean tokens emitted per speculative verification round, including the target's correction or bonus token (1 + accepted drafts / rounds)."
     format: {style: fixed, decimals: 2}
     higher_is_better: true
   - name: draft_time_share

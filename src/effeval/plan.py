@@ -24,6 +24,7 @@ from effeval.core.spec import (
     run_key,
     runtime_excluded_fields,
     runtime_identity,
+    sampling_settings,
 )
 from effeval.core.types import Artifact, Deviation, Fidelity, Issue, Severity, utc_now
 from effeval.metrics.quality import COMPARATIVE, why_not_applicable
@@ -83,6 +84,9 @@ def _task_generation(run: GenerationSpec, task_plan: Any) -> GenerationSpec:
             if task_plan.do_sample
             else None
         )
+        if not task_plan.do_sample:
+            update["top_p"] = None
+            update["top_k"] = None
     return run.model_copy(update=update)
 
 
@@ -218,6 +222,17 @@ def freeze(
                         paths=["generation.do_sample"],
                         message=f"output_match is not computed for {main.task.name}: sampled outputs "
                         "are not expected to match the reference's",
+                    )
+                )
+            if main.generation.do_sample and "multi_turn_prompt_match" in compare:
+                compare.remove("multi_turn_prompt_match")
+                issues.append(
+                    Issue(
+                        code="compare.multi_turn_prompt_match_dropped",
+                        severity=Severity.INFO,
+                        paths=["generation.do_sample"],
+                        message=f"multi_turn_prompt_match is not computed for {main.task.name}: sampled "
+                        "answers make later-turn prompts differ from the reference's",
                     )
                 )
             key = run_key(main)
@@ -419,6 +434,9 @@ def model_group_key(job: Job) -> str:
         if draft.preprocess is not None:
             key += f"|{draft.preprocess.model_dump_json(include={'steps', 'versions'})}"
         key += f"|{spec.decoding.num_speculative_tokens}|{spec.decoding.verification}"
+    if spec.runtime.name != "hf" and spec.generation.do_sample:
+        settings = canonical_json(sampling_settings(spec.generation).model_dump(mode="json"))
+        key += f"|sampling:{settings}|seed:{spec.determinism.seed}"
     return key
 
 

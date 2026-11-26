@@ -7,7 +7,7 @@ from typing import Any, Literal
 from pydantic import Field, field_validator, model_validator
 
 from effeval.core.canonical import canonical_json, sha256_hex
-from effeval.core.catalog import ModelEntry
+from effeval.core.catalog import DEFAULT_SAMPLING_TEMPERATURE, ModelEntry
 from effeval.core.listing import TaskListing
 from effeval.core.manifest import MethodManifest
 from effeval.core.preprocess import Preprocess, ResolvedPreprocess
@@ -109,6 +109,35 @@ class GenerationSpec(StrictModel):
     temperature: float | None = Field(default=None, ge=0.0)
     max_new_tokens: int = Field(default=512, ge=1)
     batch_size: int = Field(default=8, ge=1)
+    top_p: float | None = Field(
+        default=None,
+        gt=0.0,
+        lt=1.0,
+        description="Nucleus sampling mass; only with do_sample, speed tasks only. Empty: no top-p.",
+    )
+    top_k: int | None = Field(
+        default=None,
+        ge=1,
+        description="Keep the k most likely tokens; only with do_sample, speed tasks only. Empty: no top-k.",
+    )
+
+
+class SamplingSettings(StrictModel):
+    temperature: float = Field(gt=0.0)
+    top_p: float | None = None
+    top_k: int | None = None
+
+
+def sampling_settings(generation: GenerationSpec) -> SamplingSettings | None:
+    """Sampling settings of a generation spec: None when do_sample is false, else the temperature (default
+    DEFAULT_SAMPLING_TEMPERATURE when unset or 0) with top_p and top_k as given."""
+    if not generation.do_sample:
+        return None
+    return SamplingSettings(
+        temperature=generation.temperature or DEFAULT_SAMPLING_TEMPERATURE,
+        top_p=generation.top_p,
+        top_k=generation.top_k,
+    )
 
 
 class DeterminismSpec(StrictModel):
@@ -340,7 +369,8 @@ def run_key(spec: JobSpec) -> str:
     """
     generation: dict[str, Any] = {"batch_size": spec.generation.batch_size}
     if spec.task.mode in (Mode.GENERATION, Mode.SPEED):
-        generation = spec.generation.model_dump(mode="json")
+        unset = {name for name in ("top_p", "top_k") if getattr(spec.generation, name) is None}
+        generation = spec.generation.model_dump(mode="json", exclude=unset)
     identity = {
         "model": spec.model.model_dump(mode="json"),
         "method": {"name": spec.method.name, "version": spec.method.version, "config": spec.method.config},

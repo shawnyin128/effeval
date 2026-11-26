@@ -8,19 +8,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from effeval.core.spec import JobSpec
+from effeval.core.spec import JobSpec, sampling_settings
 from effeval.core.types import EngineHandle
-from effeval.evaluators.speed_backend import Generation, decoder_description
+from effeval.evaluators.speed_backend import Generation, decoder_description, sampling_description
 
 
 class EngineBackend:
-    """Greedy generation in the handle's engine worker, one request at a time."""
+    """Generation with the job's sampling settings in the handle's engine worker, one request at a time."""
 
     def __init__(self, handle: EngineHandle, job: JobSpec):
-        if job.generation.do_sample:
-            raise ValueError(f"the {handle.runtime} engine backend decodes greedily, not with do_sample")
         self.tokenizer = handle.tokenizer
-        self.sampled = False
+        self._sampling = sampling_settings(job.generation)
+        self.sampled = self._sampling is not None
         self._handle = handle
         self._job = job
 
@@ -30,7 +29,8 @@ class EngineBackend:
             "device": self._handle.device,
             "timing": f"perf_counter around one {self._handle.runtime} generate call inside the engine "
             "worker; excludes tokenization and effeval's IPC",
-            "temperature": None,
+            "temperature": None if self._sampling is None else self._sampling.temperature,
+            "sampling": sampling_description(self._sampling, self._job.determinism.seed),
             "torch_determinism": False,
         }
 

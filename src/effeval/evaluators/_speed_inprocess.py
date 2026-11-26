@@ -6,10 +6,9 @@ from typing import Any
 
 import torch
 
-from effeval.core.catalog import DEFAULT_SAMPLING_TEMPERATURE
-from effeval.core.spec import JobSpec
+from effeval.core.spec import JobSpec, sampling_settings
 from effeval.core.types import InProcess
-from effeval.evaluators.speed_backend import Generation, decoder_description
+from effeval.evaluators.speed_backend import Generation, decoder_description, sampling_description
 from effeval.runtime import hf
 from effeval.runtime.speculative import AutoregressiveDecoder, TokenSampler
 
@@ -51,13 +50,14 @@ class InProcessBackend:
         self._cuda_devices = _cuda_devices(self._decoder.models)
         self._eos_ids = hf.stop_token_ids(handle.tokenizer, handle.model.generation_config)
         self._job = job
-        generation = job.generation
-        self._temperature = None
-        generator = None
-        if generation.do_sample:
-            self._temperature = generation.temperature or DEFAULT_SAMPLING_TEMPERATURE
+        self._sampling = sampling_settings(job.generation)
+        if self._sampling is None:
+            self._sampler = TokenSampler(None)
+        else:
             generator = torch.Generator(device=self._device).manual_seed(job.determinism.seed)
-        self._sampler = TokenSampler(self._temperature, generator)
+            self._sampler = TokenSampler(
+                self._sampling.temperature, generator, top_p=self._sampling.top_p, top_k=self._sampling.top_k
+            )
         self.sampled = not self._sampler.greedy
 
     def describe(self) -> dict[str, Any]:
@@ -70,7 +70,8 @@ class InProcessBackend:
             "decode_cache": self._decode_cache(),
             "device": ", ".join(names) if names else "cpu",
             "timing": timing,
-            "temperature": self._temperature,
+            "temperature": None if self._sampling is None else self._sampling.temperature,
+            "sampling": sampling_description(self._sampling, self._job.determinism.seed),
         }
 
     def _decode_cache(self) -> dict[str, Any]:

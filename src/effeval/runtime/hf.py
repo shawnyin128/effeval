@@ -19,6 +19,7 @@ from effeval.runtime.speculative import (
     GreedyAcceptance,
     ModelDrafter,
     SpeculativeDecoder,
+    SpeculativeSampling,
     StaticCacheSettings,
 )
 
@@ -166,14 +167,13 @@ def prepare_speculative(
 
     Returns (the target handle with `decoder` set to a prepared SpeculativeDecoder, the draft's
     preprocessing summary or None). The decoder's `prepare()` result (cache allocation and graph capture of
-    both models) is left on `decoder.prepared`. Raises ValueError when the two vocabularies differ and
-    NotImplementedError for sampling verification.
+    both models) is left on `decoder.prepared`. The acceptance rule is `SpeculativeSampling` when
+    `decoding.verification` is "sampling", else `GreedyAcceptance`. Raises ValueError when the two
+    vocabularies differ.
     """
     decoding = spec.decoding
     if decoding is None:
         raise ValueError("prepare_speculative needs a job with decoding")
-    if decoding.verification != "greedy":
-        raise NotImplementedError(f"{decoding.verification} verification is not implemented")
     target = prepare_role(spec.model, spec.method, spec.preprocess, spec.runtime, manifests[spec.method.name])
     draft = decoding.draft
     drafted = prepare_role(
@@ -193,7 +193,7 @@ def prepare_speculative(
         target.model,
         ModelDrafter(drafted.model, settings),
         decoding.num_speculative_tokens,
-        GreedyAcceptance(),
+        SpeculativeSampling() if decoding.verification == "sampling" else GreedyAcceptance(),
         settings=settings,
     )
     decoder.prepare()
