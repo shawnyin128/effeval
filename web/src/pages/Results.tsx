@@ -1,6 +1,6 @@
 import { FlaskConical, FolderClosed, FolderOpen, Plus, RefreshCw, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, type Project, type Row, type Scope } from "../api";
+import { api, fieldTitle, type Project, type Row, type Scope } from "../api";
 import { useApp } from "../components/common";
 import { ResultsSheet } from "../components/ResultsSheet";
 import { useT } from "../i18n";
@@ -67,7 +67,7 @@ export function Results({ scope }: { scope: Scope }) {
     localStorage.setItem(fieldKey, f);
   };
   const fieldRows = useMemo(() => groupRows.filter((r) => r.field === active), [groupRows, active]);
-  const fieldLabel = (f: string) => f.charAt(0).toUpperCase() + f.slice(1);
+  const fieldLabel = (f: string) => fieldTitle(describe, f);
   const viewToggle = (
     <div className="field-tabs-side">
       <Segmented value={view} onChange={(v) => { setView(v); localStorage.setItem("effeval.results.view", v); }}

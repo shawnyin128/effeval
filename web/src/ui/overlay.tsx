@@ -55,6 +55,8 @@ export interface NoticeOptions {
   issues?: Issue[];
   /** Notices sharing a key (or, without a key, the same title and tone) replace each other instead of stacking. */
   key?: string;
+  /** A button on the banner, e.g. undo; the banner stays up longer and closes when it is clicked. */
+  action?: { label: string; run: () => void };
 }
 interface Notice extends NoticeOptions {
   id: number;
@@ -81,6 +83,7 @@ export function useDismissToast() {
 
 const ISSUE_PREVIEW = 3;
 const DURATION: Record<Tone, number> = { success: 3000, info: 3000, warning: 8000, error: 10000 };
+const ACTION_DURATION = 10000;
 
 function NoticeIssues({ issues }: { issues: Issue[] }) {
   const t = useT();
@@ -99,9 +102,9 @@ function NoticeIssues({ issues }: { issues: Issue[] }) {
 /** Closes `notice` after its tone's duration, counted from its latest post; renders nothing. */
 function AutoClose({ notice, onClose }: { notice: Notice; onClose: (id: number) => void }) {
   useEffect(() => {
-    const timer = window.setTimeout(() => onClose(notice.id), DURATION[notice.tone]);
+    const timer = window.setTimeout(() => onClose(notice.id), notice.action ? ACTION_DURATION : DURATION[notice.tone]);
     return () => window.clearTimeout(timer);
-  }, [notice.id, notice.posted, notice.tone, onClose]);
+  }, [notice.id, notice.posted, notice.tone, notice.action, onClose]);
   return null;
 }
 
@@ -141,6 +144,9 @@ export function UiProvider({ children }: { children: ReactNode }) {
                 {n.description && <RToast.Description className="notice-desc">{n.description}</RToast.Description>}
                 {n.issues && n.issues.length > 0 && <NoticeIssues issues={n.issues} />}
               </div>
+              {n.action && (
+                <RToast.Action className="notice-action" altText={n.action.label} onClick={n.action.run}>{n.action.label}</RToast.Action>
+              )}
               <RToast.Close className="notice-close" aria-label={t("Close")}><X size={14} /></RToast.Close>
             </RToast.Root>
           ))}

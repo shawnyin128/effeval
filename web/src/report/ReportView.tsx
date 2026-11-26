@@ -1,5 +1,5 @@
 import * as yaml from "js-yaml";
-import { Columns3, Copy, FileText, FolderMinus, Search, Trash2, TriangleAlert, X } from "lucide-react";
+import { Columns3, Copy, FileText, FolderMinus, Search, Trash2, TriangleAlert, Undo2, X } from "lucide-react";
 import { Popover } from "radix-ui";
 import { useEffect, useMemo, useState } from "react";
 import { api, fieldTitle, type Row } from "../api";
@@ -82,7 +82,9 @@ export function ReportView({ rows, project, showOwners, inPool = false, onChange
     return () => window.removeEventListener("keydown", onKey);
   }, [recordId]);
   const blocks = useMemo(() => buildBlocks(rows, describe), [rows, describe]);
-  const visible = blocks.filter((b) => !query || `${b.model} ${b.field}`.includes(query.trim().toLowerCase()));
+  const [only, setOnly] = useState<string | null>(null);
+  const matching = blocks.filter((b) => !query || `${b.model} ${b.field}`.includes(query.trim().toLowerCase()));
+  const visible = matching.some((b) => b.id === only) ? matching.filter((b) => b.id === only) : matching;
 
   return (
     <div className="docked">
@@ -93,8 +95,8 @@ export function ReportView({ rows, project, showOwners, inPool = false, onChange
           <input className="input" placeholder={t("Filter blocks")} value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
         <div className="report-jump">
-          {visible.map((b) => (
-            <button key={b.id} className="jump" onClick={() => document.getElementById(`block-${b.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+          {matching.length > 1 && matching.map((b) => (
+            <button key={b.id} className={`jump${only === b.id ? " active" : ""}`} aria-pressed={only === b.id} onClick={() => setOnly(only === b.id ? null : b.id)}>
               <span className="mono">{b.model}</span><span className="faint">· {fieldTitle(describe, b.field)}</span><span className="count">{b.rows.length}</span>
             </button>
           ))}
@@ -202,7 +204,9 @@ function ReportBlock({ block: full, project, colored, showOwners, inPool, onOpen
           <>
             <span className="small"><b>{t("{n} rows selected", { n: picked.size })}</b></span>
             <PublishSelected rows={recordsOf(block.rows.filter((r) => picked.has(r.key)))} onDone={() => { setPicked(new Set()); onChanged?.(); }} />
-            {!inPool && <Button size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => askRemoveRows(block.rows.filter((r) => picked.has(r.key)))}>{t("Remove…")}</Button>}
+            {inPool
+              ? <Button size="sm" icon={<Undo2 size={13} />} onClick={() => askRemoveRows(block.rows.filter((r) => picked.has(r.key)))}>{t("Remove from the lab pool…")}</Button>
+              : <Button size="sm" variant="danger" icon={<Trash2 size={13} />} onClick={() => askRemoveRows(block.rows.filter((r) => picked.has(r.key)))}>{t("Remove…")}</Button>}
             <button className="icon-button" aria-label={t("Clear")} onClick={() => setPicked(new Set())}><X size={13} /></button>
           </>
         )}
@@ -262,7 +266,9 @@ function ReportBlock({ block: full, project, colored, showOwners, inPool, onOpen
                 <th key={m.id} className="z-result" title={[`${m.task} · ${metricHeader(describe, m.metric)}`, ...m.mixed].join("\n")}>
                   <span className="th-title">
                     {m.mixed.length > 0 && <TriangleAlert size={12} className="mixed-icon" />}{columnTitle(m)}
-                    {!inPool && <button className="col-remove" aria-label={t("Remove this task's results")} title={t("Remove this task's results")} onClick={() => askRemoveColumn(m.task)}><Trash2 size={11} /></button>}
+                    {inPool
+                      ? <button className="col-remove" aria-label={t("Remove this task's results from the lab pool")} title={t("Remove this task's results from the lab pool")} onClick={() => askRemoveColumn(m.task)}><Undo2 size={11} /></button>
+                      : <button className="col-remove" aria-label={t("Remove this task's results")} title={t("Remove this task's results")} onClick={() => askRemoveColumn(m.task)}><Trash2 size={11} /></button>}
                   </span>
                 </th>
               ))}
@@ -316,8 +322,11 @@ function ReportBlock({ block: full, project, colored, showOwners, inPool, onOpen
       </div>
 
       {hasOtherProblems && <div className="report-note"><span className="problem-mark">!</span>{t("A result marked ! is invalid (in the recycle bin, redo pending or retracted by its owner); hover it for the reason.")}</div>}
-      <RemoveDialog removal={removal} project={project}
-        onClose={() => setRemoval(null)} onDone={() => { setRemoval(null); setPicked(new Set()); onChanged?.(); }} />
+      {inPool
+        ? <UnshareDialog removal={removal} onClose={() => setRemoval(null)}
+            onDone={() => { setRemoval(null); setPicked(new Set()); onChanged?.(); }} onUndone={() => onChanged?.()} />
+        : <RemoveDialog removal={removal} project={project}
+            onClose={() => setRemoval(null)} onDone={() => { setRemoval(null); setPicked(new Set()); onChanged?.(); }} />}
       <Dialog open={!!configRow} onOpenChange={(o) => !o && setConfigRow(null)} wide
         title={configRow ? configRowTitle(describe, configRow) : undefined}
         footer={configRow && <Button icon={<Copy size={13} />} onClick={async () => { await navigator.clipboard.writeText(yaml.dump(configRow.config)); toast(t("Copied YAML")); }}>{t("Copy YAML")}</Button>}>
@@ -387,6 +396,59 @@ function RemoveDialog({ removal, project, onClose, onDone }: {
         <div className="small muted">{t("Move to recycle bin: the results disappear everywhere, including other projects, until restored from the recycle bin.")}</div>
         {mine.length < n && <div className="small" style={{ color: "var(--orange)" }}>{t("Only {n} of them are yours and can go to the recycle bin.", { n: mine.length })}</div>}
         {removal.baseline && <div className="small" style={{ color: "var(--orange)" }}>{t("Other rows are compared against this baseline; their comparisons will be unavailable.")}</div>}
+      </div>
+    </Dialog>
+  );
+}
+
+/** Confirm taking the user's own results in whole rows or a column out of the lab pool; the toast offers to republish them. */
+function UnshareDialog({ removal, onClose, onDone, onUndone }: {
+  removal: { what: string; rows: Row[]; baseline: boolean } | null;
+  onClose: () => void;
+  onDone: () => void;
+  onUndone: () => void;
+}) {
+  const { me } = useApp();
+  const t = useT();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  if (!removal) return null;
+  const n = removal.rows.length;
+  const mine = removal.rows.filter((r) => (r.owner === me.username || me.role === "admin") && r.visibility !== "private");
+  const unshare = async () => {
+    setBusy(true);
+    try {
+      const outcomes = await Promise.all(mine.map((r) => api.retract(r.record_id)));
+      const retracted = outcomes.filter((o) => o.unshared === "retracted").length;
+      const ids = mine.map((r) => r.record_id);
+      toast(t("Removed {n} results from the lab pool", { n: mine.length }), {
+        description: retracted > 0 ? t("{n} are used by others and stay in the lab pool marked retracted.", { n: retracted }) : undefined,
+        action: {
+          label: t("Undo"),
+          run: () => {
+            Promise.all(ids.map((id) => api.publish(id)))
+              .then(() => { toast(t("Published {n}", { n: ids.length })); onUndone(); })
+              .catch((e) => toast(t("Action failed"), { tone: "error", description: (e as Error).message }));
+          },
+        },
+      });
+      onDone();
+    } catch (e) {
+      toast(t("Action failed"), { tone: "error", description: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()} title={t("Remove {n} results from the lab pool", { n: mine.length })}
+      footer={<>
+        <Button onClick={onClose}>{t("Cancel")}</Button>
+        <Button variant="primary" disabled={busy || mine.length === 0} icon={<Undo2 size={13} />} onClick={unshare}>{t("Remove from the lab pool")}</Button>
+      </>}>
+      <div className="stack-sm">
+        <div><b>{removal.what}</b> · {t("{n} results", { n })}</div>
+        <div className="small muted">{t("Your results become private again and stay in your own results and projects. A result someone else uses stays in the lab pool marked retracted. Either can be republished.")}</div>
+        {mine.length < n && <div className="small" style={{ color: "var(--orange)" }}>{t("{n} of them are not yours and are skipped.", { n: n - mine.length })}</div>}
       </div>
     </Dialog>
   );
