@@ -301,7 +301,9 @@ def test_validate_warns_when_the_rank_ratio_saves_no_parameters():
 
 def test_validate_reports_an_unsupported_layout_as_an_error(monkeypatch):
     monkeypatch.setitem(
-        ARCHITECTURE_TRANSFORMS, QKV_SHARED, lambda arch: (_ for _ in ()).throw(ValueError("no shared norm"))
+        ARCHITECTURE_TRANSFORMS,
+        QKV_SHARED,
+        lambda arch, _config: (_ for _ in ()).throw(ValueError("no shared norm")),
     )
     errors = [i for i in issues_of(probe_spec()) if i.severity.value == "error"]
     assert [i.code for i in errors] == ["method.architecture_unsupported"]

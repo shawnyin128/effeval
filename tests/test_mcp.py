@@ -166,6 +166,7 @@ def test_describe_leaves_out_the_task_list_but_keeps_the_common_tasks_and_counts
         "codequant": "CodeQuant",
         "codequant2": "CodeQuant2",
         "qsvd": "QSVD",
+        "lsvd": "LSVD",
     }
     assert {n: m["title"] for n, m in brief["methods"].items()} == titles
     assert {n: m["title"] for n, m in full["methods"].items()} == titles

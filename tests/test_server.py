@@ -385,6 +385,22 @@ def test_a_manifest_with_an_architecture_transform_round_trips_through_the_serve
     assert "architecture_transform" not in described["rtn"]
 
 
+def test_an_lsvd_manifest_round_trips_through_the_server(server):
+    from effeval.core.catalog import builtin_catalog
+
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    lsvd = builtin_catalog().manifests["lsvd"]
+    assert lsvd.architecture_transform == "lsvd"
+    mine = lsvd.model_copy(update={"name": "my_lsvd", "builtin": False})
+    posted = alice.post("/api/methods", json=mine.model_dump(mode="json"))
+    posted.raise_for_status()
+    assert posted.json()["architecture_transform"] == "lsvd"
+    described = alice.get("/api/describe").json()["methods"]
+    assert described["my_lsvd"]["architecture_transform"] == "lsvd"
+    assert described["lsvd"]["architecture_transform"] == "lsvd"
+
+
 def test_models_are_lab_wide_and_codes_cannot_be_redefined(server):
     _app, _admin, as_user = server
     alice, bob = as_user("alice"), as_user("bob")

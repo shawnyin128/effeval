@@ -156,9 +156,17 @@ def _candidates(model: nn.Module) -> list[_Location]:
     layout = architecture(model)
     layers = decoder_layers(model)
     moe = layout.moe
+    graph = layout.effective_graph()
+    restricted = {
+        n.module: set(select_layers(n.layers, len(layers)))
+        for n in (graph.of_kind("linear") if graph is not None else [])
+        if n.layers is not None and n.module is not None
+    }
     out: list[_Location] = []
     for index, layer in enumerate(layers):
         for path, canon in layout.linears.items():
+            if moe is None and path in restricted and index not in restricted[path]:
+                continue
             for expert, module in expand_path(layer, path, strict=moe is None):
                 out.extend(_Location(f"linear.{canon}.{t}", index, module, expert) for t in SITE_TENSORS)
         if moe is not None and index in moe.layers:

@@ -1,0 +1,723 @@
+name: lsvd
+title: LSVD
+version: '1'
+field: quantization
+runtime: hf
+entry: effeval.methods.quantization.lsvd:lsvd
+capabilities:
+  modes: []
+  handles:
+  - in_process
+uses:
+- quant_rules
+- calibration
+architectures: null
+config_schema:
+  $defs:
+    Calibration:
+      additionalProperties: false
+      description: 'Calibration data drawn from a corpus.
+
+
+        `windows` (c4, wikitext2): n_samples random token windows of seqlen tokens,
+        drawn with `seed`.
+
+        `documents` (pile_val): the first n_samples documents of the corpus shuffled
+        with `seed`, one per
+
+        forward pass, each truncated to seqlen tokens (SmoothQuant).
+
+        `concat_blocks` (pile_val): n_samples documents of at most seqlen tokens after
+        shuffling with `seed`,
+
+        concatenated and cut into blocks of seqlen tokens (AWQ).
+
+        `random_crop` (pile_val): the documents shuffled with `seed`, taken in order
+        and skipping empty ones, a
+
+        document longer than seqlen cropped to seqlen tokens at an offset drawn uniformly
+        from
+
+        `random.Random(seed)`, shorter documents kept whole, until n_samples documents
+        and n_samples * seqlen
+
+        tokens are collected; all
+
+        concatenated, cut into blocks of seqlen tokens, the first n_samples blocks
+        kept (QServe / deepcompressor).'
+      properties:
+        dataset:
+          description: Corpus the calibration data is drawn from.
+          enum:
+          - c4
+          - wikitext2
+          - pile_val
+          title: Dataset
+          type: string
+        n_samples:
+          description: Number of windows (windows) or documents (the other modes).
+          minimum: 1
+          title: N Samples
+          type: integer
+        seqlen:
+          description: Tokens per window, truncated document or block.
+          minimum: 8
+          title: Seqlen
+          type: integer
+        seed:
+          description: Seed for drawing the windows or shuffling the documents.
+          title: Seed
+          type: integer
+        sampling:
+          default: windows
+          description: How the corpus becomes token sequences.
+          enum:
+          - windows
+          - documents
+          - concat_blocks
+          - random_crop
+          title: Sampling
+          type: string
+      required:
+      - dataset
+      - n_samples
+      - seqlen
+      - seed
+      title: Calibration
+      type: object
+    ClipSearch:
+      additionalProperties: false
+      description: 'Per-unit search for the clipping ratio that minimises the weight
+        reconstruction error.
+
+
+        Candidates are p = 1 - i / grid for i in range(int(max_shrink * grid)); each
+        shrinks the unit''s range to
+
+        p of its min-max range, and the candidate with the smallest sum of |dequantized
+        - original|^norm wins
+
+        (the first one on ties). This is the `--w_clip` search of QuaRot (quant_utils.py
+        `WeightQuantizer`) and
+
+        of the GPTQ repository''s `mse` option.'
+      properties:
+        type:
+          const: mse
+          title: Type
+          type: string
+        grid:
+          default: 100
+          description: Resolution of the candidate ratios.
+          minimum: 1
+          title: Grid
+          type: integer
+        max_shrink:
+          default: 0.8
+          description: Largest shrink; candidates stop before 1 - max_shrink.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Max Shrink
+          type: number
+        norm:
+          default: 2.4
+          description: Exponent of the error summed over a unit.
+          exclusiveMinimum: 0.0
+          title: Norm
+          type: number
+      required:
+      - type
+      title: ClipSearch
+      type: object
+    CodebookFormat:
+      additionalProperties: false
+      description: 'Weights only: each unit (a row, or group_size consecutive values
+        of a row) keeps `centroids` values
+
+        fitted by k-means, and every element is replaced by the nearest centroid of
+        its unit.'
+      properties:
+        type:
+          const: codebook
+          title: Type
+          type: string
+        centroids:
+          description: Codebook entries per unit.
+          maximum: 256
+          minimum: 1
+          title: Centroids
+          type: integer
+        granularity:
+          description: 'Unit: per_channel one codebook per output row, per_group one
+            per group_size values.'
+          enum:
+          - per_channel
+          - per_group
+          title: Granularity
+          type: string
+        group_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Values per codebook when granularity is per_group.
+          title: Group Size
+        kmeans:
+          $ref: '#/$defs/KMeansConfig'
+      required:
+      - type
+      - centroids
+      - granularity
+      title: CodebookFormat
+      type: object
+    FpFormat:
+      additionalProperties: false
+      description: 'Low-precision float `eXmY` with a float32 scale `absmax / max_representable`
+        per granularity unit.
+
+
+        `special` selects which codes are reserved: `ieee` (inf/nan, e.g. e5m2), `fn`
+        (only the all-ones code is
+
+        NaN, e.g. e4m3fn), `none` (all codes finite, e.g. OCP FP6/FP4). `auto` picks
+        ieee for e5m2, fn for e4m3
+
+        and none otherwise.'
+      properties:
+        type:
+          const: fp
+          title: Type
+          type: string
+        encoding:
+          description: 'eXmY: exponent and mantissa bits, e.g. e4m3, e2m1.'
+          title: Encoding
+          type: string
+        special:
+          default: auto
+          description: 'Reserved codes: ieee inf/NaN, fn NaN only, none all finite.'
+          enum:
+          - auto
+          - ieee
+          - fn
+          - none
+          title: Special
+          type: string
+        granularity:
+          description: 'Scale unit: per_tensor one scale, per_channel one per output
+            row (weights), per_token one per vector (activations), per_group every
+            group_size values.'
+          enum:
+          - per_tensor
+          - per_channel
+          - per_token
+          - per_group
+          title: Granularity
+          type: string
+        group_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Values per scale when granularity is per_group.
+          title: Group Size
+        clip_ratio:
+          default: 1.0
+          description: Shrink the range to this fraction of absmax before rounding.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Clip Ratio
+          type: number
+        group_axis:
+          anyOf:
+          - enum:
+            - channel
+            - token
+            type: string
+          - type: 'null'
+          default: null
+          description: 'Axis a per_group scale unit spans. channel (default): group_size
+            consecutive features of one token. token: group_size consecutive tokens
+            of one feature. Sequence-shaped sites only.'
+          title: Group Axis
+        residual:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Keep the most recent residual tokens in full precision; only
+            older tokens are quantized. With group_axis token the quantized span is
+            cut to whole groups. Sequence-shaped sites only.
+          title: Residual
+      required:
+      - type
+      - encoding
+      - granularity
+      title: FpFormat
+      type: object
+    IntFormat:
+      additionalProperties: false
+      description: 'Uniform integer grid.
+
+
+        Asymmetric: min-max range that always contains zero, zero point `round(-min
+        / scale)`; this is exactly the
+
+        grid of the official GPTQ code (quant.py `Quantizer.find_params`) and the
+        paper''s RTN baseline.
+
+        Symmetric: `scale = absmax / (2^(bits-1) - 1)`, codes clamped to [-2^(bits-1),
+        2^(bits-1) - 1].'
+      properties:
+        type:
+          const: int
+          title: Type
+          type: string
+        bits:
+          description: Integer bit width.
+          maximum: 8
+          minimum: 2
+          title: Bits
+          type: integer
+        symmetric:
+          description: 'Symmetric: scale = absmax / (2^(bits-1) - 1). Asymmetric:
+            min-max grid, zero point.'
+          title: Symmetric
+          type: boolean
+        granularity:
+          description: 'Scale unit: per_tensor one scale, per_channel one per output
+            row (weights), per_token one per vector (activations), per_group every
+            group_size values.'
+          enum:
+          - per_tensor
+          - per_channel
+          - per_token
+          - per_group
+          title: Granularity
+          type: string
+        group_size:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Values per scale when granularity is per_group.
+          title: Group Size
+        clip_ratio:
+          default: 1.0
+          description: Shrink the range to this fraction of absmax before rounding.
+          exclusiveMinimum: 0.0
+          maximum: 1.0
+          title: Clip Ratio
+          type: number
+        clip_search:
+          anyOf:
+          - $ref: '#/$defs/ClipSearch'
+          - type: 'null'
+          default: null
+          description: 'Weights only: search each scale unit''s clipping ratio by
+            reconstruction error instead of using clip_ratio.'
+        zero_point:
+          anyOf:
+          - enum:
+            - integer
+            - float
+            type: string
+          - type: 'null'
+          default: null
+          description: 'Asymmetric only. integer (default): the range always contains
+            zero and the zero point is an integer. float: the grid spans exactly [min,
+            max] of the unit, offset by min.'
+          title: Zero Point
+        group_axis:
+          anyOf:
+          - enum:
+            - channel
+            - token
+            type: string
+          - type: 'null'
+          default: null
+          description: 'Axis a per_group scale unit spans. channel (default): group_size
+            consecutive features of one token. token: group_size consecutive tokens
+            of one feature. Sequence-shaped sites only.'
+          title: Group Axis
+        residual:
+          anyOf:
+          - minimum: 1
+            type: integer
+          - type: 'null'
+          default: null
+          description: Keep the most recent residual tokens in full precision; only
+            older tokens are quantized. With group_axis token the quantized span is
+            cut to whole groups. Sequence-shaped sites only.
+          title: Residual
+      required:
+      - type
+      - bits
+      - symmetric
+      - granularity
+      title: IntFormat
+      type: object
+    KMeansConfig:
+      additionalProperties: false
+      description: Lloyd iterations of a codebook fit, started from k-means++ draws
+        of a generator seeded with `seed`.
+      properties:
+        iters:
+          default: 300
+          description: Maximum Lloyd iterations.
+          minimum: 0
+          title: Iters
+          type: integer
+        tol:
+          default: 1.0e-06
+          description: Stop once no centroid moves by more than this (absolute).
+          minimum: 0.0
+          title: Tol
+          type: number
+        seed:
+          default: 42
+          description: Seed of the k-means++ generator, created afresh per matrix.
+          title: Seed
+          type: integer
+        compute_dtype:
+          default: weight
+          description: 'Dtype the fit runs in: the weight''s own dtype or float32.'
+          enum:
+          - weight
+          - float32
+          title: Compute Dtype
+          type: string
+      title: KMeansConfig
+      type: object
+    LSVDDecomposition:
+      additionalProperties: false
+      properties:
+        rank_ratio:
+          description: 'Kept parameter ratio of each of q, k and v: per head-slot
+            int(rank_ratio * num_layers * head_dim * hidden / (hidden + head_dim))
+            singular values, times the head count, ranked by importance; values at
+            or above (hidden + head_dim) / hidden keep every one.'
+          exclusiveMinimum: 0
+          title: Rank Ratio
+          type: number
+        beta:
+          default: 0.0
+          description: 'Singular-value split: up factor U * S^(1 - beta), down factor
+            S^beta * V^T. 0 puts every singular value in the up factor (released --svd_mode
+            U); 0.5 splits the square root between the factors (paper). The hybrid
+            FFN''s SVD branch supports only 0 and 0.5.'
+          maximum: 1
+          minimum: 0
+          title: Beta
+          type: number
+        grad_alpha:
+          default: 1.0
+          description: Exponent of the singular value's gradient magnitude in its
+            importance score.
+          title: Grad Alpha
+          type: number
+        score_dtype:
+          default: bfloat16
+          description: dtype of the gradient projection, its accumulation and the
+            importance scores; the released code uses bfloat16.
+          enum:
+          - bfloat16
+          - float32
+          title: Score Dtype
+          type: string
+        rank_pools:
+          default: per_projection
+          description: per_projection ranks q, k and v in separate pools with their
+            own budgets; joint ranks them in one pool (released --truncate_mixed_qkv_budget).
+          enum:
+          - per_projection
+          - joint
+          title: Rank Pools
+          type: string
+        k_grad_normalisation:
+          default: once
+          description: How often the k_proj gradient score is divided by the window
+            count and square-rooted. twice reproduces the released code, which normalises
+            k_proj in a separate step and again in the q/k/v loop; once is the single
+            normalisation q and v get.
+          enum:
+          - once
+          - twice
+          title: K Grad Normalisation
+          type: string
+        qaw:
+          default: false
+          description: 'Quantization-aware whitening: the input Gram is accumulated
+            from fake-quantized activations (per-token symmetric).'
+          title: Qaw
+          type: boolean
+        qaw_bits:
+          default: 8
+          description: Activation bit width of quantization-aware whitening.
+          maximum: 8
+          minimum: 2
+          title: Qaw Bits
+          type: integer
+        qaw_clip_ratio:
+          default: 1.0
+          description: Clip ratio of the activation quantizer of quantization-aware
+            whitening.
+          exclusiveMinimum: 0
+          maximum: 1
+          title: Qaw Clip Ratio
+          type: number
+      required:
+      - rank_ratio
+      title: LSVDDecomposition
+      type: object
+    LSVDFFN:
+      additionalProperties: false
+      properties:
+        enabled:
+          default: false
+          description: Split gate and up into an SVD branch and RTN dense channels
+            in every layer but the last skip_last_layers.
+          title: Enabled
+          type: boolean
+        svd_ratio:
+          default: 0.5
+          description: Fraction of the intermediate channels on the SVD branch.
+          exclusiveMaximum: 1
+          exclusiveMinimum: 0
+          title: Svd Ratio
+          type: number
+        rank_ratio:
+          default: 0.9
+          description: 'Rank of the SVD branch: int(rank_ratio * n * hidden / (n +
+            hidden)) for n SVD channels.'
+          exclusiveMinimum: 0
+          maximum: 2
+          title: Rank Ratio
+          type: number
+        skip_last_layers:
+          default: 5
+          description: Layers at the end of the network that keep a plain dense FFN.
+          minimum: 0
+          title: Skip Last Layers
+          type: integer
+        skipped_layer_hadamard:
+          default: standard
+          description: 'standard: a skipped layer''s down_proj carries the offline
+            fold and the online Hadamard (function-preserving). online_only reproduces
+            the released code, which applies the online Hadamard there without folding
+            it into the weights, so the layer no longer computes the original function;
+            it needs the preprocess''s online Hadamard on linear.mlp.down_proj.input.'
+          enum:
+          - standard
+          - online_only
+          title: Skipped Layer Hadamard
+          type: string
+        latent_rotation:
+          default: block_hadamard
+          description: Rotation of the SVD branch's latent space.
+          enum:
+          - block_hadamard
+          - none
+          title: Latent Rotation
+          type: string
+        whitening_tokens:
+          default: 4096
+          description: Calibration tokens (evenly strided) that whiten the SVD branch.
+          minimum: 1
+          title: Whitening Tokens
+          type: integer
+        damping:
+          default: 0.01
+          description: Diagonal damping of the whitening Gram, relative to its mean
+            diagonal.
+          minimum: 0
+          title: Damping
+          type: number
+        selection_ratio:
+          default: 0.2
+          description: Fraction of channels on the SVD branch in the channel-selection
+            baseline.
+          exclusiveMaximum: 1
+          exclusiveMinimum: 0
+          title: Selection Ratio
+          type: number
+        selection_tokens:
+          default: 8192
+          description: First calibration tokens the channel selection is evaluated
+            on.
+          maximum: 8192
+          minimum: 1
+          title: Selection Tokens
+          type: integer
+        selection_w_bits:
+          default: 8
+          description: Weight bits of the channel-selection proxy.
+          maximum: 8
+          minimum: 2
+          title: Selection W Bits
+          type: integer
+        selection_a_bits:
+          default: 8
+          description: Activation bits of the channel-selection proxy.
+          maximum: 8
+          minimum: 2
+          title: Selection A Bits
+          type: integer
+        selection_a_clip_ratio:
+          default: 1.0
+          description: Activation clip ratio of the channel-selection proxy.
+          exclusiveMinimum: 0
+          maximum: 1
+          title: Selection A Clip Ratio
+          type: number
+        selection_latent_rotation:
+          default: false
+          description: Rotate the latent of the channel-selection baseline.
+          title: Selection Latent Rotation
+          type: boolean
+        selection_rotation:
+          default: random_hadamard
+          description: 'Basis the channel order is computed in: the residual rotation
+            a QuaRot-style preprocess applies (the released code selects on the rotated
+            model), or the model as it is.'
+          enum:
+          - random_hadamard
+          - none
+          title: Selection Rotation
+          type: string
+        selection_rotation_seed:
+          default: 0
+          description: Seed of the random Hadamard that selection_rotation simulates.
+          title: Selection Rotation Seed
+          type: integer
+      title: LSVDFFN
+      type: object
+    MxFormat:
+      additionalProperties: false
+      description: 'Block-scaled format along the last dimension.
+
+
+        `scale: e8m0` follows the OCP Microscaling rule: shared scale `2^(floor(log2(block_absmax))
+        - emax_elem)`.
+
+        `scale: e4m3` follows the two-level NVFP4-style rule: a float32 tensor scale
+        plus an e4m3 block scale.'
+      properties:
+        type:
+          const: mx
+          title: Type
+          type: string
+        element:
+          description: Element format eXmY, e.g. e2m1 for MXFP4.
+          title: Element
+          type: string
+        block_size:
+          description: Values sharing one scale.
+          minimum: 2
+          title: Block Size
+          type: integer
+        scale:
+          description: 'e8m0: OCP power-of-two scale. e4m3: NVFP4-style two-level
+            scale.'
+          enum:
+          - e8m0
+          - e4m3
+          title: Scale
+          type: string
+      required:
+      - type
+      - element
+      - block_size
+      - scale
+      title: MxFormat
+      type: object
+    QuantRule:
+      additionalProperties: false
+      description: Quantize the tensors at `sites` within `layers`; later rules override
+        earlier ones at the same spot.
+      properties:
+        sites:
+          description: Where to quantize, e.g. linear.*.weight, linear.mlp.*.input,
+            attn.q.
+          items:
+            type: string
+          minItems: 1
+          title: Sites
+          type: array
+        layers:
+          anyOf:
+          - type: integer
+          - type: string
+          - items:
+              anyOf:
+              - type: integer
+              - type: string
+            type: array
+          default: all
+          description: 'Decoder layers: all, an index, a range 0-15, a list, or re:<regex>.'
+          title: Layers
+        quant:
+          discriminator:
+            mapping:
+              codebook: '#/$defs/CodebookFormat'
+              fp: '#/$defs/FpFormat'
+              int: '#/$defs/IntFormat'
+              mx: '#/$defs/MxFormat'
+            propertyName: type
+          oneOf:
+          - $ref: '#/$defs/IntFormat'
+          - $ref: '#/$defs/FpFormat'
+          - $ref: '#/$defs/MxFormat'
+          - $ref: '#/$defs/CodebookFormat'
+          title: Quant
+      required:
+      - sites
+      - quant
+      title: QuantRule
+      type: object
+  additionalProperties: false
+  properties:
+    rules:
+      description: Quantization rules applied to the factored model.
+      items:
+        $ref: '#/$defs/QuantRule'
+      title: Rules
+      type: array
+    weight_scope:
+      default: all
+      description: 'released: weight rules skip the q/k/v factors and o_proj of the
+        layers whose FFN is hybrid (the released RTN scope). all: weight rules apply
+        wherever they match.'
+      enum:
+      - released
+      - all
+      title: Weight Scope
+      type: string
+    calibration:
+      $ref: '#/$defs/Calibration'
+    decomposition:
+      $ref: '#/$defs/LSVDDecomposition'
+    ffn:
+      $ref: '#/$defs/LSVDFFN'
+      description: Hybrid SVD / RTN feed-forward block.
+  required:
+  - calibration
+  - decomposition
+  title: LSVDConfig
+  type: object
+display:
+- rules
+- decomposition
+- ffn
+default_preset: paper_w8a8
+custom_presets: {}
+schema_hash: sha256:bd6be5535097824ebeaef035fbc52e990de1447fdc766470055406ca6893b426
+builtin: true
+description: 'LSVD: loss-aware per-head low-rank factorisation of q/k/v with importance-ranked
+  rank allocation and quantization-aware whitening, a hybrid SVD / RTN feed-forward
+  block, then RTN weights and per-token activations (ported from the official code;
+  text-only).'
+architecture_transform: lsvd

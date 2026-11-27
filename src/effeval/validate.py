@@ -552,6 +552,36 @@ def _check_decomposition(spec: RunSpec, manifest: MethodManifest, entry: ModelEn
     )
 
 
+def _check_selection_basis(spec: RunSpec, manifest: MethodManifest, res: Resolution) -> None:
+    """Warn when the LSVD FFN channel order is computed in a basis the job's preprocessing does not apply."""
+    ffn = spec.method.config.get("ffn")
+    if manifest.architecture_transform != "lsvd" or not isinstance(ffn, dict):
+        return
+    if ffn.get("enabled") is not True or ffn.get("selection_rotation") != "random_hadamard":
+        return
+    seed = ffn.get("selection_rotation_seed", 0)
+    applied = [
+        entry.source
+        for step in (spec.preprocess.steps if spec.preprocess is not None else [])
+        if step.kind == "rotation"
+        for entry in step.entries
+        if entry.position == "residual"
+    ]
+    if any(s.type == "random_hadamard" and s.seed == seed for s in applied):
+        return
+    found = ", ".join(f"{s.type} rotation" for s in applied) or "no residual rotation"
+    res.issues.append(
+        Issue(
+            code="decomposition.selection_basis",
+            severity=Severity.WARNING,
+            paths=["method.config.ffn.selection_rotation"],
+            message=f"the FFN channel order is computed in the basis of a random Hadamard with seed {seed}, "
+            f"but this job's preprocessing applies {found}",
+            hint="set selection_rotation to none without a residual rotation, or match the seed",
+        )
+    )
+
+
 def _position_table(
     architecture: ArchitectureDef, entry: ModelEntry
 ) -> dict[str, dict[str, dict[str, str]]] | None:
@@ -1074,11 +1104,12 @@ def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
     layout = architecture
     if manifest.architecture_transform is not None:
         try:
-            layout = transform_architecture(architecture, manifest.architecture_transform)
+            layout = transform_architecture(architecture, manifest.architecture_transform, spec.method.config)
         except ValueError as exc:
             res.error("method.architecture_unsupported", str(exc), ["method.name", "model.name"])
             return res
         _check_decomposition(spec, manifest, entry, res)
+        _check_selection_basis(spec, manifest, res)
     if "quant_rules" in manifest.uses and isinstance(spec.method.config.get("rules"), list):
         _check_sites(spec.method.config["rules"], layout, entry, res)
     _check_preprocess(spec, layout, entry, res)

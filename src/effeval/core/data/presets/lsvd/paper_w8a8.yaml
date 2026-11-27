@@ -1,0 +1,126 @@
+# Deviations from the official code, all intended: calibration is wikitext2 text with the full-sequence causal-LM
+# loss (the official code calibrates on ScienceQA image-question prompts); the model runs in its registered dtype
+# (bfloat16) instead of float16; head_dim comes from the model config (the official code assumes hidden // heads,
+# which is wrong for Qwen3); the input Gram comes from a full forward pass instead of the layer-by-layer replay;
+# eval mode instead of train mode (no dropout in Qwen3); a Gram that is not positive definite, or a projection
+# that keeps no singular value in a layer, is an error (official: silent eigenvalue shift or a dense fallback);
+# the per-head floor of one singular value and the clamp of k to the pool size are kept as released.
+# tasks: text-only perplexity replaces the paper's VLM benchmarks (no source in the code).
+# Quantization scope: the released RTN pass quantizes, in a layer whose FFN is hybrid, only the FFN (gate/up SVD
+# factors, gate/up dense rows, down_proj) and leaves that layer's q/k/v factors and o_proj in 16 bit; skipped layers
+# take the standard path (every linear). weight_scope released reproduces this (gptq_utils.py#L1155-L1262); the
+# preset all_weights_w8a8 quantizes every linear weight instead.
+# Hybrid FFN: the released channel order comes from LLaVA JSONs that cannot transfer, so Phase 1 is rerun in the same
+# run (LLaVA-Next recipe, ffn_groups.sh#L72-L89) in the basis of the paired preprocess; the SVD branch is whitened
+# with gain-aware damping, equivalent in exact arithmetic to the released computation on the rotated model; the last
+# ffn.skip_last_layers layers use the standard function-preserving Hadamard pair (the released code folds nothing into
+# a skipped layer's down_proj although it sets the online Hadamard there, hybrid_ffn_utils.py#L1775-L1799 and
+# rotation_utils.py#L1163-L1185; ffn.skipped_layer_hadamard online_only reproduces that). ffn.selection_rotation
+# simulates the residual rotation of the paired preprocess (the released Phase 1 ran on the rotated model).
+method: lsvd
+name: paper_w8a8
+description: LSVD W8A8 with the released settings (rank ratio 0.5, quantization-aware whitening, hybrid FFN with 50% SVD channels, last 5 layers dense) and the released RTN weight scope; pairs with the preprocess preset `lsvd`.
+paper: {title: "LSVD: Loss-Aware Low-Rank Approximation for Efficient Low-Precision Vision-Language Models", arxiv: "2606.00573", official_repo: "https://github.com/SAI-Lab-NYU/LSVD@f5675bd02af1d0ed047eb733dc1e72256d4408a6"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 8, symmetric: true, granularity: per_channel, clip_search: {type: mse, grid: 100, max_shrink: 0.8, norm: 2.4}}
+      - sites: [linear.*.input]
+        layers: all
+        quant: {type: int, bits: 8, symmetric: true, granularity: per_token, clip_ratio: 1.0}
+    source: "code: scripts/lsvd/w8a8.sh#L47-L67 (--w_bits 8 --a_bits 8 --w_rtn --w_clip, --k_bits 16 --v_bits 16 so no KV rule), fake_quant/utils/utils.py#L219 (a_clip_ratio default 1.0), quant_utils.py#L224-L339 and #L550-L576 (per-token activation quantizers on every wrapped linear and on the latents), gptq_utils.py#L1155-L1262 (per-channel symmetric weights with the mse clip grid); lm_head and embeddings are not quantized"
+  method.config.weight_scope:
+    value: released
+    source: "code: gptq_utils.py#L1155-L1262 (rtn_fwrd: a hybrid layer quantizes only its FFN targets and skips that layer's q/k/v factors and o_proj)"
+  method.config.calibration.dataset:
+    value: wikitext2
+    source: "code: fake_quant/utils/data_utils.py#L29-L51 (deviation: text-only, get_wikitext2 replaces ScienceQA_Train)"
+  method.config.calibration.n_samples:
+    value: 256
+    source: "code: scripts/lsvd/fp16.sh#L25-L38 and w8a8.sh#L47-L67 (--nsamples 256)"
+  method.config.calibration.seqlen:
+    value: 2048
+    source: "code: fake_quant/utils/data_utils.py#L29-L51 (deviation: text-only, the window length is the loader's seqlen argument)"
+  method.config.calibration.seed:
+    value: 0
+    source: "code: scripts/lsvd/fp16.sh#L25-L38 (SEED default 0, --seed)"
+  method.config.decomposition.rank_ratio:
+    value: 0.5
+    source: "code: scripts/lsvd/fp16.sh#L25-L38 and w8a8.sh#L47-L67 (RATIO default 0.5, --rank_ratio, --use_true_param_ratio), grad_info_utils.py#L2698-L2721"
+  method.config.decomposition.beta:
+    value: 0.0
+    source: "code: scripts/lsvd/fp16.sh#L25-L38 (--svd_mode U), svd_utils.py#L1522-L1695"
+  method.config.decomposition.grad_alpha:
+    value: 1.0
+    source: "code: fake_quant/utils/utils.py#L623 (--grad_alpha default 1.0)"
+  method.config.decomposition.score_dtype:
+    value: bfloat16
+    source: "code: grad_info_utils.py#L2326-L2347 (importance scores in bfloat16) and #L948-L1017 (gradient projection and accumulation in bfloat16)"
+  method.config.decomposition.rank_pools:
+    value: per_projection
+    source: "code: grad_info_utils.py#L2780-L2943 (separate q/k/v pools unless --truncate_mixed_qkv_budget)"
+  method.config.decomposition.k_grad_normalisation:
+    value: twice
+    source: "code: grad_info_utils.py#L1395-L1412 (k_proj.S_grad_info is divided by the batch count and square-rooted once on its own and once more in the q/k/v loop)"
+  method.config.decomposition.qaw:
+    value: true
+    source: "code: scripts/lsvd/w8a8.sh#L47-L67 (--act_calib_fake_quant), fake_quant/utils/utils.py#L510"
+  method.config.decomposition.qaw_bits:
+    value: 8
+    source: "code: act_aware_utils.py#L43-L92 (a_bits_calib defaults to --a_bits 8)"
+  method.config.decomposition.qaw_clip_ratio:
+    value: 1.0
+    source: "code: fake_quant/utils/utils.py#L219 (a_clip_ratio default 1.0)"
+  method.config.ffn.enabled:
+    value: true
+    source: "code: scripts/lsvd/w8a8.sh#L47-L67 (--use_hybrid_ffn)"
+  method.config.ffn.svd_ratio:
+    value: 0.5
+    source: "code: scripts/lsvd/w8a8.sh#L47-L67 (--svd_ffn_ratio 0.5), hybrid_ffn_utils.py#L1013-L1341"
+  method.config.ffn.rank_ratio:
+    value: 0.9
+    source: "code: scripts/lsvd/w8a8.sh#L47-L67 (--hybrid_ffn_rank_ratio 0.9), hybrid_ffn_utils.py#L1356-L1403"
+  method.config.ffn.skip_last_layers:
+    value: 5
+    source: "code: scripts/lsvd/w8a8.sh#L47-L67 (--hybrid_ffn_skip_layers: the last 5 layers of the 32/40-layer models), hybrid_ffn_utils.py#L1775-L1799 (deviation: counted from the end instead of the LLaVA layer numbers)"
+  method.config.ffn.skipped_layer_hadamard:
+    value: standard
+    source: "assumed"
+  method.config.ffn.latent_rotation:
+    value: block_hadamard
+    source: "code: scripts/lsvd/w8a8.sh#L47-L67 (--hybrid_ffn_svd_latent_rotate), hybrid_ffn_utils.py#L472-L513 and #L538-L645"
+  method.config.ffn.whitening_tokens:
+    value: 4096
+    source: "code: hybrid_ffn_utils.py#L1210-L1253 (whitening rows X[::step][:4096])"
+  method.config.ffn.damping:
+    value: 0.01
+    source: "code: hybrid_ffn_utils.py#L1210-L1253 (H += 0.01 * mean(diag H))"
+  method.config.ffn.selection_ratio:
+    value: 0.2
+    source: "code: fake_quant/utils/utils.py#L389 (svd_ffn_ratio default 0.2), scripts/lsvd/ffn_groups.sh#L72-L89 (deviation: the order is computed in the same run instead of read from the released JSON)"
+  method.config.ffn.selection_tokens:
+    value: 8192
+    source: "code: hybrid_ffn_utils.py#L65 (_SVD_AWARE_MAX_TOKENS) and #L2524-L2805"
+  method.config.ffn.selection_w_bits:
+    value: 8
+    source: "code: scripts/lsvd/ffn_groups.sh#L72-L89 (W8A8 RTN Phase 1)"
+  method.config.ffn.selection_a_bits:
+    value: 8
+    source: "code: scripts/lsvd/ffn_groups.sh#L72-L89 (W8A8 RTN Phase 1)"
+  method.config.ffn.selection_a_clip_ratio:
+    value: 1.0
+    source: "code: fake_quant/utils/utils.py#L219 (a_clip_ratio default 1.0)"
+  method.config.ffn.selection_latent_rotation:
+    value: false
+    source: "code: scripts/lsvd/ffn_groups.sh#L72-L89 (no latent rotation in Phase 1)"
+  method.config.ffn.selection_rotation:
+    value: random_hadamard
+    source: "assumed"
+  method.config.ffn.selection_rotation_seed:
+    value: 0
+    source: "code: scripts/lsvd/w8a8.sh#L47-L67 (--seed, the random Hadamard seed)"
+  tasks:
+    value: [native/wikitext2_ppl, native/c4_ppl]
+    source: "assumed"

@@ -16,8 +16,16 @@ from torch import nn
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, BatchEncoding
 
-from effeval.core.fragments import Calibration, IntFormat, QuantRule, TextBatches, select_layers
+from effeval.core.fragments import (
+    Calibration,
+    IntFormat,
+    QuantFormat,
+    QuantRule,
+    TextBatches,
+    select_layers,
+)
 from effeval.ops import online, sites
+from effeval.ops.quant.quant import fake_quantize
 
 PILE_VAL = "mit-han-lab/pile-val-backup"
 
@@ -303,18 +311,23 @@ def act_stats(
     model: nn.Module,
     windows: list[torch.Tensor],
     site_patterns: list[str],
-    stat: Literal["absmax", "absmean", "window_absmean_sum"],
+    stat: Literal["absmax", "absmean", "window_absmean_sum", "gram"],
+    prequant: QuantFormat | None = None,
 ) -> dict[tuple[str, int | None], torch.Tensor]:
     """Per-channel statistic of the tensors at activation sites over all calibration tokens.
 
     `site_patterns` are fnmatch patterns over `linear.<name>.input` / `.output` sites, as in quant rules.
     absmax: max |x| per channel; absmean: mean |x| per channel over every token of every window;
     window_absmean_sum: sum over windows of the per-window token mean of |x| (ASVD / QSVD `abs_mean`), which
-    needs every hooked call to hold one window. Returns float32 [C] tensors keyed by (site, layer). Raises
+    needs every hooked call to hold one window; gram: sum over all calls and tokens of x^T x (float32 [C, C]),
+    with every observed tensor first fake-quantized as an activation by `prequant` when given (`prequant` is
+    only allowed with gram). Returns float32 [C] tensors ([C, C] for gram) keyed by (site, layer). Raises
     sites.SiteError when a pattern matches nothing.
     """
-    if stat not in ("absmax", "absmean", "window_absmean_sum"):
+    if stat not in ("absmax", "absmean", "window_absmean_sum", "gram"):
         raise ValueError(f"unsupported statistic {stat!r}")
+    if prequant is not None and stat != "gram":
+        raise ValueError("prequant is only supported with the gram statistic")
     if not all(pattern.endswith((".input", ".output")) for pattern in site_patterns):
         raise ValueError("act_stats observes linear input or output sites")
     # `resolve` only reads the patterns; the format is a placeholder to build a valid rule.
@@ -325,8 +338,17 @@ def act_stats(
     sums: dict[tuple[str, int | None], torch.Tensor] = {}
     counts: dict[tuple[str, int | None], int] = {}
     window_sums: dict[tuple[str, int | None], torch.Tensor] = {}
+    grams: dict[tuple[str, int | None], torch.Tensor] = {}
 
     def observe(key, tensor: torch.Tensor) -> None:
+        if stat == "gram":
+            x = tensor.detach()
+            x = (fake_quantize(x, prequant, "activation") if prequant is not None else x).float()
+            if x.dim() == 2:
+                x = x.unsqueeze(0)
+            add = torch.matmul(x.transpose(1, 2), x).sum(dim=0)
+            grams[key] = add if key not in grams else grams[key] + add
+            return
         if stat == "window_absmean_sum":
             if tensor.shape[0] != 1:
                 raise ValueError(f"window_absmean_sum needs one window per call, got batch {tensor.shape[0]}")
@@ -366,6 +388,8 @@ def act_stats(
         return maxima
     if stat == "window_absmean_sum":
         return window_sums
+    if stat == "gram":
+        return grams
     return {key: (sums[key] / counts[key]).float() for key in sums}
 
 
@@ -417,6 +441,92 @@ def causal_lm_grads(
         model.train(training)
         model.config.use_cache = use_cache
     return count
+
+
+def output_grad_grams(
+    model: nn.Module,
+    batches: Sequence[torch.Tensor | Mapping[str, torch.Tensor]],
+    targets: Mapping[str, tuple[nn.Module, int, int]],
+    params: Sequence[nn.Parameter],
+) -> dict[str, torch.Tensor]:
+    """Per-head Gram of the loss gradient at module outputs, summed over all batches and tokens.
+
+    `targets` maps a key to (module, heads, head_dim); the module output must be [B, T, heads * head_dim].
+    Gradients flow as in `causal_lm_grads(model, batches, params)`, so each `params` entry that lies below a
+    target must be listed there. Returns float32 [heads, head_dim, head_dim] tensors keyed like `targets`; the
+    hooks are removed on exit.
+    """
+    grams: dict[str, torch.Tensor] = {}
+
+    def observe(key: str, heads: int, head_dim: int, grad_out: torch.Tensor) -> None:
+        g = grad_out.detach()
+        g = g.view(g.shape[0], -1, heads, head_dim).permute(0, 2, 1, 3).contiguous().float()
+        cov = torch.matmul(g.transpose(-1, -2), g).sum(dim=0)
+        grams[key] = cov if key not in grams else grams[key] + cov
+
+    handles = [
+        module.register_full_backward_hook(
+            lambda _m, _gin, gout, key=key, h=heads, d=head_dim: observe(key, h, d, gout[0])
+        )
+        for key, (module, heads, head_dim) in targets.items()
+    ]
+    try:
+        causal_lm_grads(model, batches, params, on_batch=lambda: None)
+    finally:
+        for handle in handles:
+            handle.remove()
+    return grams
+
+
+@torch.no_grad()
+def collect_input_rows(
+    model: nn.Module,
+    windows: list[torch.Tensor],
+    site_pattern: str,
+    rows: torch.Tensor,
+) -> dict[int, torch.Tensor]:
+    """Selected token rows of the input of a linear site, per decoder layer.
+
+    `rows` are 1-D indices into the token stream formed by concatenating the windows in order (token t of
+    window w is row `sum of earlier window sizes + t`). Returns, per layer, a CPU tensor [len(rows), C] in the
+    activation dtype holding those rows in the order given; no other token is stored. Raises ValueError when
+    a row lies outside the stream and sites.SiteError when the pattern matches nothing.
+    """
+    if not site_pattern.endswith(".input"):
+        raise ValueError("collect_input_rows observes a linear input site")
+    total = sum(window.numel() for window in windows)
+    if rows.dim() != 1 or (rows.numel() and (int(rows.min()) < 0 or int(rows.max()) >= total)):
+        raise ValueError(f"rows must be a 1-D index into the {total}-token stream")
+    placeholder = IntFormat(type="int", bits=8, symmetric=True, granularity="per_token")
+    assignment, _ = sites.resolve(model, [QuantRule(sites=[site_pattern], quant=placeholder)])
+
+    out: dict[int, torch.Tensor] = {}
+    offsets: dict[int, int] = {}
+
+    def observe(layer: int, tensor: torch.Tensor) -> None:
+        flat = tensor.reshape(-1, tensor.shape[-1])
+        start = offsets.get(layer, 0)
+        offsets[layer] = start + flat.shape[0]
+        hit = ((rows >= start) & (rows < start + flat.shape[0])).nonzero().squeeze(-1)
+        if layer not in out:
+            out[layer] = torch.empty(rows.numel(), flat.shape[-1], dtype=flat.dtype)
+        out[layer][hit] = flat[(rows[hit] - start).to(flat.device)].cpu()
+
+    handles = [
+        location.module.register_forward_pre_hook(lambda _m, args, layer=key[1]: observe(layer, args[0]))
+        for key, (_rule, location, _fmt) in assignment.items()
+    ]
+    use_cache = model.config.use_cache
+    model.config.use_cache = False
+    device = next(model.parameters()).device
+    try:
+        for window in windows:
+            model(window.to(device))
+    finally:
+        for handle in handles:
+            handle.remove()
+        model.config.use_cache = use_cache
+    return out
 
 
 @torch.no_grad()

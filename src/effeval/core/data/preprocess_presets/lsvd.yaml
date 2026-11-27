@@ -1,0 +1,41 @@
+# Weights and linear inputs are quantized; lm_head and embeddings stay 16-bit as in the official code.
+name: lsvd
+title: LSVD
+description: QuaRot-style rotations on the LSVD-factored model (R1 random Hadamard on the residual stream, per-head value rotation, online Hadamards before o_proj and down_proj); there is no Q/K rotation after RoPE because the KV cache stays 16-bit.
+paper: {title: "LSVD: Loss-Aware Low-Rank Approximation for Efficient Low-Precision Vision-Language Models", arxiv: "2606.00573", official_repo: "https://github.com/SAI-Lab-NYU/LSVD@f5675bd02af1d0ed047eb733dc1e72256d4408a6"}
+# Deviations from the official code, all intended: R1 is drawn from random_hadamard with seed 0 (the official code
+# draws it from the global RNG state, which the seed does not reproduce); Hadamard products are computed in float64
+# instead of fast_hadamard_transform in fp16 (the released hybrid down_proj fold is float32); embeddings are untied
+# because Qwen3 ties them; embedding rows are not mean-centred; head_dim comes from the model config (the official
+# code assumes hidden // heads); the o_proj online op mixes all heads * head_dim channels instead of the official
+# across-head Hadamard, which changes the A8 numerics versus the official code.
+# Skipped layers (the last ffn.skip_last_layers): the released code puts the online Hadamard on their down_proj
+# without folding it into the weights (hybrid_ffn_utils.py#L1775-L1799; rotate_mlp_output_hybrid_ffn skips the fold for
+# every layer, rotation_utils.py#L1163-L1185), so those layers do not compute the original function. This preset applies
+# the standard function-preserving pair (offline fold and online Hadamard) there; the method option
+# ffn.skipped_layer_hadamard: online_only reproduces the released behaviour.
+quantizers:
+  lsvd: [paper_w8a8, all_weights_w8a8]
+values:
+  preprocess.steps:
+    value:
+      - kind: rotation
+        entries:
+          - position: residual
+            layers: all
+            mode: offline
+            source: {type: random_hadamard, seed: 0}
+            options: {untie_embeddings: true, center_embeddings: false}
+          - position: attn.v_head
+            layers: all
+            mode: offline
+            source: {type: hadamard}
+          - position: linear.attn.o_proj.input
+            layers: all
+            mode: online
+            source: {type: hadamard}
+          - position: linear.mlp.down_proj.input
+            layers: all
+            mode: online
+            source: {type: hadamard}
+    source: "code: fake_quant/utils/rotation_utils.py#L1677-L1700 (rotate_modelllavasvdqkv: R1 on the embedding, the three down factors, up/gate inputs, o/down outputs and lm_head), #L1424-L1472 (rotate_ov_proj: per-head Hadamard on the value path), fake_quant/main_llava_next_hybrid_ffn.py#L272-L304 (online Hadamards before o_proj and down_proj), fake_quant/utils/hybrid_ffn_utils.py#L1300-L1323 (Hadamard fold into the permuted down_proj)"

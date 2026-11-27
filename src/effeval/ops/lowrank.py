@@ -8,7 +8,7 @@ calling `q_proj`, `k_proj` and `v_proj` exactly once each.
 from __future__ import annotations
 
 import itertools
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 import torch
 from torch import nn
@@ -17,7 +17,9 @@ from effeval.core.lowrank import (
     ARCHITECTURE_ATTR,
     DOWN_NAME,
     QKV_CANONS,
+    QKV_DOWN_CANONS,
     factor_qkv_architecture,
+    factor_qkv_per_head_architecture,
 )
 from effeval.ops import sites
 
@@ -169,5 +171,189 @@ def install_shared_qkv(
             projections[name] = LowRankProjection(down, up)
         setattr(attention, DOWN_NAME, down)
         for name, projection in projections.items():
+            setattr(attention, name, projection)
+    setattr(model, ARCHITECTURE_ATTR, new_arch)
+
+
+def cholesky_lower(gram: torch.Tensor) -> torch.Tensor:
+    """Lower Cholesky factor `L` (float64) with `gram = L L^T`.
+
+    Raises ValueError if `gram` is not positive definite.
+    """
+    try:
+        return torch.linalg.cholesky(gram.double())
+    except torch.linalg.LinAlgError as error:
+        raise ValueError(f"Gram matrix is not positive definite: {error}") from error
+
+
+def cholesky_upper_heads(gram: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    """Per-head upper Cholesky factors of `gram [H, hd, hd]`: `(R, inv(R))`, both float32.
+
+    Raises ValueError if any head's Gram is not positive definite.
+    """
+    try:
+        upper = torch.linalg.cholesky(gram.double(), upper=True).float()
+    except torch.linalg.LinAlgError as error:
+        raise ValueError(f"output-gradient Gram is not positive definite: {error}") from error
+    return upper, torch.linalg.inv(upper.float())
+
+
+def per_head_whitened_svd(
+    weight: torch.Tensor, heads: int, L: torch.Tensor, R: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Per-head SVD of `R_h W_h L`, where `W_h` is the `h`-th block of `weight`'s rows.
+
+    `weight` is `[heads * hd, d]`, `L` is `[d, d]`, `R` is `[heads, hd, hd]`. Returns float32
+    `(U [H, hd, hd], S [H, hd], V [H, d, hd])` with `R_h W_h L = U_h diag(S_h) V_h^T`.
+    """
+    w = weight.reshape(heads, -1, weight.shape[-1]).float() @ L.float()
+    w = R.float() @ w
+    U, S, Vt = torch.linalg.svd(w.to(torch.float32), full_matrices=False)
+    return U, S, Vt.transpose(1, 2)
+
+
+def per_head_projected_gradient(
+    U: torch.Tensor,
+    V: torch.Tensor,
+    grad: torch.Tensor,
+    input_inv_t: torch.Tensor,
+    output_inv: torch.Tensor,
+    dtype: torch.dtype,
+) -> torch.Tensor:
+    """Per-head `diag(U_h^T R_h^{-T} G_h L^{-T} V_h)` as `[H, hd]`, every product computed in `dtype`.
+
+    `grad` is `[H * hd, d]`, `input_inv_t = inv(L)^T`, `output_inv = inv(R)` per head.
+    """
+    g = grad.reshape(U.shape[0], -1, grad.shape[-1]).to(dtype)
+    g = g @ input_inv_t.to(dtype)
+    g = output_inv.transpose(-1, -2).to(dtype) @ g
+    return torch.sum(U.to(dtype) * (g @ V.to(dtype)), dim=1)
+
+
+def per_head_allocation(
+    pools: Sequence[Sequence[torch.Tensor]], ks: Sequence[int], joint: bool
+) -> tuple[list[list[list[list[int]]]], int]:
+    """Per-head singular-value selection by a global top-k over all layers and heads.
+
+    `pools[p][layer]` is the `[H_p, hd]` score matrix of projection `p`; `ks[p]` is its per-head budget, so
+    the pool budget is `ks[p] * H_p` clamped to the pool size. With `joint`, all pools compete in one top-k
+    (pool-major, budget the sum of the pool budgets) instead of one top-k per pool. Returns
+    `(indices, floored)` with `indices[p][layer][head]` in descending-score order, where a head left empty
+    gets `[0]` and is counted in `floored`. Raises ValueError for a projection with no selected value in
+    some layer, or for NaN scores.
+    """
+    if len(pools) != len(ks):
+        raise ValueError(f"{len(pools)} pools for {len(ks)} budgets")
+    heads = [pool[0].shape[0] for pool in pools]
+    budgets = [k * h for k, h in zip(ks, heads, strict=True)]
+    flat = [[layer.reshape(-1) for layer in pool] for pool in pools]
+    if joint:
+        everything = [layer for pool in flat for layer in pool]
+        picked = global_top_k(everything, min(sum(budgets), sum(x.numel() for x in everything)))
+        selections = []
+        offset = 0
+        for pool in flat:
+            selections.append(picked[offset : offset + len(pool)])
+            offset += len(pool)
+    else:
+        selections = [
+            global_top_k(pool, min(budget, sum(x.numel() for x in pool)))
+            for pool, budget in zip(flat, budgets, strict=True)
+        ]
+    indices: list[list[list[list[int]]]] = []
+    floored = 0
+    for p, selection in enumerate(selections):
+        hd = pools[p][0].shape[1]
+        per_layer = []
+        for layer, positions in enumerate(selection):
+            if not positions:
+                raise ValueError(f"projection {p} has no selected singular value in layer {layer}")
+            per_head: list[list[int]] = [[] for _ in range(heads[p])]
+            for position in positions:
+                per_head[position // hd].append(position % hd)
+            for head in per_head:
+                if not head:
+                    head.append(0)
+                    floored += 1
+            per_layer.append(per_head)
+        indices.append(per_layer)
+    return indices, floored
+
+
+def per_head_factors(
+    U: torch.Tensor,
+    S: torch.Tensor,
+    V: torch.Tensor,
+    head_indices: Sequence[Sequence[int]],
+    L: torch.Tensor,
+    R_inv: torch.Tensor,
+    beta: float,
+    dtype: torch.dtype,
+) -> tuple[torch.Tensor, list[torch.Tensor]]:
+    """Factors of the selected per-head triplets: `(down [sum_h r_h, d], [A_h [hd, r_h]])` in `dtype`.
+
+    `A_h = R_inv[h] U_h S_h^(1-beta)` and `down` stacks `S_h^beta (inv(L)^T V_h)^T` over heads, so
+    `block_diag(A_h) @ down` approximates the dense weight. Raises ValueError for a head without indices.
+    """
+    l_inv = torch.linalg.inv(L.double()).to(torch.float32)
+
+    def power(s: torch.Tensor, exponent: float) -> torch.Tensor:
+        return s.sqrt() if exponent == 0.5 else s**exponent
+
+    blocks, downs = [], []
+    for h, indices in enumerate(head_indices):
+        if not indices:
+            raise ValueError(f"head {h} has no selected singular value")
+        idx = torch.as_tensor(list(indices), dtype=torch.long, device=U.device)
+        u, s, v = U[h][:, idx], S[h][idx], V[h][:, idx]
+        v = l_inv.T @ v
+        u = R_inv[h].float() @ u
+        blocks.append((u * power(s, 1 - beta)).contiguous().to(dtype))
+        downs.append((v.t() * power(s, beta)[:, None]).contiguous())
+    return torch.cat(downs, 0).contiguous().to(dtype), blocks
+
+
+def install_per_head_qkv(
+    model: nn.Module, factors: Sequence[Mapping[str, tuple[torch.Tensor, Sequence[torch.Tensor]]]]
+) -> None:
+    """Replace each layer's q/k/v by `LowRankProjection`s with own `<p>_down` linears and block-diagonal ups.
+
+    `factors[l]` maps `"q_proj"`, `"k_proj"`, `"v_proj"` to `(down [R, d_in], [A_h [hd, r_h]])`; the up weight
+    is `block_diag(A_h)` and an original bias moves to the up factor. New linears take the original weights'
+    device and dtype. Afterwards the model carries the per-head layout. Raises ValueError if a layout is
+    already attached or the factor shapes do not match.
+    """
+    if getattr(model, ARCHITECTURE_ATTR, None) is not None:
+        raise ValueError("model already carries a factored architecture")
+    arch = sites.architecture(model)
+    layers = sites.decoder_layers(model)
+    if len(factors) != len(layers):
+        raise ValueError(f"{len(factors)} factor sets for {len(layers)} layers")
+    names = [canon.split(".")[1] for canon in QKV_CANONS]
+    down_names = [canon.split(".")[1] for canon in QKV_DOWN_CANONS]
+    new_arch = factor_qkv_per_head_architecture(arch)
+    for layer, layer_factors in zip(layers, factors, strict=True):
+        attention = layer.get_submodule(arch.attention_path)
+        projections = {}
+        for name, down_name in zip(names, down_names, strict=True):
+            proj = getattr(attention, name)
+            down_w, blocks = layer_factors[name]
+            ref = proj.weight
+            rank, d_in = down_w.shape
+            up_w = torch.block_diag(*[b.float() for b in blocks])
+            if d_in != proj.in_features:
+                raise ValueError(f"{name} down has {d_in} columns, the layer input is {proj.in_features}")
+            if tuple(up_w.shape) != (proj.out_features, rank):
+                raise ValueError(f"{name} up factor {tuple(up_w.shape)} != ({proj.out_features}, {rank})")
+            down = nn.Linear(d_in, rank, bias=False, device=ref.device, dtype=ref.dtype)
+            down.weight.data.copy_(down_w)
+            has_bias = proj.bias is not None
+            up = nn.Linear(rank, proj.out_features, bias=has_bias, device=ref.device, dtype=ref.dtype)
+            up.weight.data.copy_(up_w)
+            if proj.bias is not None:
+                up.bias.data.copy_(proj.bias)
+            projections[name] = (down_name, down, LowRankProjection(down, up))
+        for name, (down_name, down, projection) in projections.items():
+            setattr(attention, down_name, down)
             setattr(attention, name, projection)
     setattr(model, ARCHITECTURE_ATTR, new_arch)
