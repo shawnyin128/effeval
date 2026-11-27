@@ -297,7 +297,12 @@ def decompose(model: nn.Module, tokenizer, cfg: LSVDConfig) -> None:
         ),
         compute_input_gram,
     )
-    chol = [cholesky_lower(input_grams[str(layer)].to(devices[layer])) for layer in range(layer_count)]
+    chol = [
+        cholesky_lower(
+            input_grams[str(layer)].to(devices[layer]), shift_fallback=True, label=f"layer {layer} input"
+        )
+        for layer in range(layer_count)
+    ]
 
     def compute_output_grams() -> dict[str, torch.Tensor]:
         targets = {
@@ -319,7 +324,9 @@ def decompose(model: nn.Module, tokenizer, cfg: LSVDConfig) -> None:
         svds.append({})
         output_inv.append({})
         for name, proj in zip(PROJECTIONS, projections, strict=True):
-            upper, upper_inv = cholesky_upper_heads(output_grams[f"{layer}.{name}"].to(devices[layer]))
+            upper, upper_inv = cholesky_upper_heads(
+                output_grams[f"{layer}.{name}"].to(devices[layer]), label=f"layer {layer} {name}"
+            )
             output_inv[layer][name] = upper_inv
             svds[layer][name] = per_head_whitened_svd(proj.weight, head_counts[name], chol[layer], upper)
 

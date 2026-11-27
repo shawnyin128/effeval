@@ -8,6 +8,7 @@ calling `q_proj`, `k_proj` and `v_proj` exactly once each.
 from __future__ import annotations
 
 import itertools
+import logging
 from collections.abc import Mapping, Sequence
 
 import torch
@@ -22,6 +23,8 @@ from effeval.core.lowrank import (
     factor_qkv_per_head_architecture,
 )
 from effeval.ops import sites
+
+logger = logging.getLogger(__name__)
 
 
 class LowRankProjection(nn.Module):
@@ -175,26 +178,57 @@ def install_shared_qkv(
     setattr(model, ARCHITECTURE_ATTR, new_arch)
 
 
-def cholesky_lower(gram: torch.Tensor) -> torch.Tensor:
+def cholesky_lower(gram: torch.Tensor, *, shift_fallback: bool = False, label: str = "") -> torch.Tensor:
     """Lower Cholesky factor `L` (float64) with `gram = L L^T`.
 
-    Raises ValueError if `gram` is not positive definite.
+    With `shift_fallback`, a failed factorisation is retried after adding `max(-lambda_min + 1e-6, 0)` times
+    the identity (the released LSVD input-Gram fallback, no symmetrisation) and a warning naming `label` is
+    logged. Raises ValueError if `gram` is not positive definite (after the shift, if enabled).
     """
+    gram = gram.double()
     try:
-        return torch.linalg.cholesky(gram.double())
+        return torch.linalg.cholesky(gram)
     except torch.linalg.LinAlgError as error:
-        raise ValueError(f"Gram matrix is not positive definite: {error}") from error
+        if not shift_fallback:
+            raise ValueError(f"Gram matrix is not positive definite: {error}") from error
+    shift = (-torch.linalg.eigvalsh(gram)[0] + 1e-6).clamp_min(0.0)
+    logger.warning(
+        "%s: input Gram is not positive definite; shifted the diagonal by %.3e", label, shift.item()
+    )
+    try:
+        eye = torch.eye(gram.shape[-1], dtype=gram.dtype, device=gram.device)
+        return torch.linalg.cholesky(gram + shift * eye)
+    except torch.linalg.LinAlgError as error:
+        raise ValueError(f"Gram matrix is not positive definite after the shift: {error}") from error
 
 
-def cholesky_upper_heads(gram: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+def cholesky_upper_heads(gram: torch.Tensor, label: str = "") -> tuple[torch.Tensor, torch.Tensor]:
     """Per-head upper Cholesky factors of `gram [H, hd, hd]`: `(R, inv(R))`, both float32.
 
-    Raises ValueError if any head's Gram is not positive definite.
+    Follows the released LSVD code: if the float64 factorisation fails, `gram` is symmetrised and each head
+    whose smallest eigenvalue is below `1e-6` is shifted by `-lambda_min + 1e-6` times the identity before the
+    retry (other heads keep their values); a warning naming `label` and the number of shifted heads is logged.
+    Raises ValueError if the retry fails too.
     """
+    gram = gram.double()
     try:
-        upper = torch.linalg.cholesky(gram.double(), upper=True).float()
-    except torch.linalg.LinAlgError as error:
-        raise ValueError(f"output-gradient Gram is not positive definite: {error}") from error
+        upper = torch.linalg.cholesky(gram, upper=True).float()
+    except torch.linalg.LinAlgError:
+        gram = (gram + gram.transpose(-1, -2)) / 2
+        shift = (-torch.linalg.eigvalsh(gram)[..., 0] + 1e-6).clamp_min(0.0)
+        logger.warning(
+            "%s: output-gradient Gram is not positive definite; shifted %d of %d heads",
+            label,
+            int((shift > 0).sum()),
+            shift.numel(),
+        )
+        eye = torch.eye(gram.shape[-1], dtype=gram.dtype, device=gram.device)
+        try:
+            upper = torch.linalg.cholesky(gram + shift[..., None, None] * eye, upper=True).float()
+        except torch.linalg.LinAlgError as error:
+            raise ValueError(
+                f"output-gradient Gram is not positive definite after the shift: {error}"
+            ) from error
     return upper, torch.linalg.inv(upper.float())
 
 
@@ -231,7 +265,7 @@ def per_head_projected_gradient(
 
 
 def per_head_allocation(
-    pools: Sequence[Sequence[torch.Tensor]], ks: Sequence[int], joint: bool
+    pools: Sequence[Sequence[torch.Tensor]], ks: Sequence[int], joint: bool, floor_index: int = 0
 ) -> tuple[list[list[list[list[int]]]], int]:
     """Per-head singular-value selection by a global top-k over all layers and heads.
 
@@ -239,8 +273,8 @@ def per_head_allocation(
     the pool budget is `ks[p] * H_p` clamped to the pool size. With `joint`, all pools compete in one top-k
     (pool-major, budget the sum of the pool budgets) instead of one top-k per pool. Returns
     `(indices, floored)` with `indices[p][layer][head]` in descending-score order, where a head left empty
-    gets `[0]` and is counted in `floored`. Raises ValueError for a projection with no selected value in
-    some layer, or for NaN scores.
+    gets `[floor_index]` and is counted in `floored`. Raises ValueError for a projection with no selected
+    value in some layer, for NaN scores, or when `floor_index` is not below the head dimension.
     """
     if len(pools) != len(ks):
         raise ValueError(f"{len(pools)} pools for {len(ks)} budgets")
@@ -264,6 +298,8 @@ def per_head_allocation(
     floored = 0
     for p, selection in enumerate(selections):
         hd = pools[p][0].shape[1]
+        if floor_index >= hd:
+            raise ValueError(f"floor_index {floor_index} is not below the head dimension {hd}")
         per_layer = []
         for layer, positions in enumerate(selection):
             if not positions:
@@ -273,7 +309,7 @@ def per_head_allocation(
                 per_head[position // hd].append(position % hd)
             for head in per_head:
                 if not head:
-                    head.append(0)
+                    head.append(floor_index)
                     floored += 1
             per_layer.append(per_head)
         indices.append(per_layer)

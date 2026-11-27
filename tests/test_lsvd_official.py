@@ -173,11 +173,12 @@ RECORDED = (
 )
 
 
-def official_stages(model, args):
+def official_stages(model, args, wins=None):
+    wins = WINDOWS if wins is None else wins
     layers = model.model.layers
-    ref.calib_input_cholesky_text(model, layers, WINDOWS, args)
-    ref.calib_grad_distribution_text(model, layers, WINDOWS, args)
-    ref.calib_grad_info_text(model, layers, WINDOWS, args)
+    ref.calib_input_cholesky_text(model, layers, wins, args)
+    ref.calib_grad_distribution_text(model, layers, wins, args)
+    ref.calib_grad_info_text(model, layers, wins, args)
     _top, _scores, layer_indices = ref.svd_qkv_with_grad_info(layers, args)
     return layer_indices
 
@@ -265,6 +266,46 @@ def test_attention_decomposition_matches_the_official_code_stage_by_stage(
             expected = torch.block_diag(*official.ALinear)
             assert torch.equal(up, expected)
     assert torch.isfinite(torch.stack([t.float().sum() for t in model.parameters()])).all()
+
+
+def test_rank_deficient_gram_fallback_matches_the_official_eigenvalue_shift(monkeypatch, caplog):
+    tiny = windows(seed=5, count=1, length=6)
+    monkeypatch.setattr(lsvd_method, "calibration_windows", lambda *_: tiny)
+    base = tiny_gqa()
+    args = official_args()
+    staged = copy.deepcopy(base)
+    official_stages(staged, args, tiny)
+    proj = [[getattr(layer.self_attn, name) for name in PROJECTIONS] for layer in staged.model.layers]
+
+    recorder = Recorder(
+        monkeypatch, "cholesky_lower", "cholesky_upper_heads", "per_head_whitened_svd", "output_grad_grams"
+    )
+    model = copy.deepcopy(base)
+    with caplog.at_level("WARNING"):
+        lsvd_method.decompose(model, None, effeval_config())
+
+    (grams,) = recorder.results("output_grad_grams")
+    failing = 0
+    for gram in grams.values():
+        for head in gram.double():
+            failing += int(torch.linalg.cholesky_ex(head, upper=True).info.item() != 0)
+    assert failing > 0
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("not positive definite; shifted" in m and "heads" in m for m in messages)
+    assert any("input Gram is not positive definite" in r.getMessage() for r in caplog.records)
+
+    for layer, factor in enumerate(recorder.results("cholesky_lower")):
+        assert torch.equal(factor, proj[layer][1].scaling_diag_matrixS)
+    uppers = recorder.results("cholesky_upper_heads")
+    svds = recorder.results("per_head_whitened_svd")
+    for layer in range(LAYERS):
+        for p in range(3):
+            official = proj[layer][p]
+            upper, upper_inv = uppers[layer * 3 + p]
+            assert torch.equal(upper, official.output_grad_scaling_matrix)
+            assert torch.equal(upper_inv, official.svd_info["output_grad_scaling_matrix_inv"])
+            for ours, theirs in zip(svds[layer * 3 + p], "USV", strict=True):
+                assert torch.equal(ours, official.svd_info[theirs])
 
 
 def official_ffn_model(base, wins, args_attention, phase1, setup):

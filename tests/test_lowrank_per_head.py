@@ -41,7 +41,7 @@ def test_cholesky_lower_reconstructs_and_rejects_a_singular_gram():
         cholesky_lower(singular)
 
 
-def test_cholesky_upper_heads_returns_upper_factor_and_its_inverse_and_rejects_a_bad_head():
+def test_cholesky_upper_heads_returns_upper_factor_and_its_inverse_and_survives_a_singular_head():
     gram = _pd(5, 1, batch=3).float()
     upper, upper_inv = cholesky_upper_heads(gram)
     assert upper.dtype == upper_inv.dtype == torch.float32
@@ -49,8 +49,42 @@ def test_cholesky_upper_heads_returns_upper_factor_and_its_inverse_and_rejects_a
     assert torch.allclose(upper.transpose(1, 2) @ upper, gram, atol=1e-4)
     assert torch.allclose(upper @ upper_inv, torch.eye(5).expand(3, 5, 5), atol=1e-5)
     gram[1] = torch.ones(5, 5)
+    upper, _ = cholesky_upper_heads(gram)
+    assert torch.isfinite(upper).all()
+
+
+def test_cholesky_upper_heads_shifts_only_the_failing_heads_after_symmetrising(caplog):
+    gram = _pd(4, 2, batch=3)
+    gram[1] = torch.diag(torch.tensor([4.0, -2.0, 3.0, 1.0], dtype=torch.float64))
+    gram[2] = gram[2] + 0.01 * torch.triu(torch.ones(4, 4, dtype=torch.float64), 1)
+    sym = (gram + gram.transpose(1, 2)) / 2
+    with caplog.at_level("WARNING"):
+        upper, upper_inv = cholesky_upper_heads(gram, label="layer 7 q_proj")
+    assert "layer 7 q_proj" in caplog.text and "shifted 1 of 3 heads" in caplog.text
+    assert torch.equal(upper[0], torch.linalg.cholesky(gram[0], upper=True).float())
+    expected = torch.sqrt(torch.tensor([6.0 + 1e-6, 1e-6, 5.0 + 1e-6, 3.0 + 1e-6], dtype=torch.float64))
+    assert torch.allclose(upper[1], torch.diag(expected).float(), rtol=1e-6, atol=0)
+    assert torch.equal(upper[2], torch.linalg.cholesky(sym[2], upper=True).float())
+    assert torch.equal(upper_inv, torch.linalg.inv(upper))
+
+
+def test_cholesky_upper_heads_does_not_touch_a_positive_definite_batch(caplog):
+    gram = _pd(4, 3, batch=2)
+    with caplog.at_level("WARNING"):
+        upper, _ = cholesky_upper_heads(gram)
+    assert not caplog.records
+    assert torch.equal(upper, torch.linalg.cholesky(gram, upper=True).float())
+
+
+def test_cholesky_lower_shift_fallback_is_opt_in_and_shifts_by_the_smallest_eigenvalue(caplog):
+    gram = torch.diag(torch.tensor([4.0, -2.0, 3.0], dtype=torch.float64))
     with pytest.raises(ValueError, match="not positive definite"):
-        cholesky_upper_heads(gram)
+        cholesky_lower(gram)
+    with caplog.at_level("WARNING"):
+        lower = cholesky_lower(gram, shift_fallback=True, label="layer 3 input")
+    assert "layer 3 input" in caplog.text
+    expected = torch.sqrt(torch.tensor([6.0 + 1e-6, 1e-6, 5.0 + 1e-6], dtype=torch.float64))
+    assert torch.allclose(lower, torch.diag(expected), rtol=1e-9, atol=0)
 
 
 def _whitening(heads, hd, d, seed):

@@ -361,8 +361,8 @@ def test_every_layer_builds_its_factorization_statistics_on_its_own_device(monke
             f"{layer}.{name}": torch.ones(1) for layer in range(LAYERS) for name in lsvd_method.PROJECTIONS
         },
     )
-    monkeypatch.setattr(lsvd_method, "cholesky_lower", lambda gram: gram)
-    monkeypatch.setattr(lsvd_method, "cholesky_upper_heads", lambda gram: (gram, gram))
+    monkeypatch.setattr(lsvd_method, "cholesky_lower", lambda gram, **_: gram)
+    monkeypatch.setattr(lsvd_method, "cholesky_upper_heads", lambda gram, **_: (gram, gram))
     seen = []
 
     def record(weight, heads, chol, upper):
