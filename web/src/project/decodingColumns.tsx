@@ -15,9 +15,9 @@ export function hasDecodingColumns(describe: Describe, table: TableView): boolea
   return usesDecoding(rolesOf(describe, table.definition.field)) || table.blocks.some((b) => b.rows.some((r) => !!r.draft));
 }
 
-/** Whether a task column is a speed task. */
+/** Whether a task column is a specdecode task. */
 export function isSpeedTask(describe: Describe, task: string): boolean {
-  return describe.tasks[task]?.evaluator === "speed";
+  return describe.tasks[task]?.evaluator === "specdecode";
 }
 
 const taskMetricNames = (describe: Describe, task: string): string[] =>
@@ -98,16 +98,17 @@ export function comparisonLines(describe: Describe, row: GridRow, cell: Cell, ta
 /** Header cells of the decoding columns. */
 export function DecodingHeads() {
   const t = useT();
-  return <>{["Decoding", "Draft model", "k", "Provider"].map((h) => <th key={h} className="xt-config">{t(h)}</th>)}</>;
+  return <>{["Decoding", "Verification", "Draft model", "k", "Provider"].map((h) => <th key={h} className="xt-config">{t(h)}</th>)}</>;
 }
 
-/** Body cells of one row: the decoding mode, draft code, k and provider; the mode's title is the verification. */
+/** Body cells of one row: the decoding mode, its verification (Greedy or SpS), draft code, k and provider. */
 export function DecodingCells({ row }: { row: GridRow }) {
   const t = useT();
   const { describe } = useApp();
   return (
     <>
-      <td className="xt-config" title={row.decoding?.verification}>{row.decoding ? t("Speculative") : t("Autoregressive")}</td>
+      <td className="xt-config">{row.decoding ? t("Speculative") : t("Autoregressive")}</td>
+      <td className="xt-config" title={row.decoding?.verification}>{row.decoding ? (row.decoding.verification === "sampling" ? "SpS" : t("Greedy")) : "—"}</td>
       <td className="xt-config mono" title={row.draft ?? undefined}>{row.draft ?? "—"}</td>
       <td className="xt-config">{row.decoding?.k ?? "—"}</td>
       <td className="xt-config">{providerLabel(describe, row.runtime)}</td>

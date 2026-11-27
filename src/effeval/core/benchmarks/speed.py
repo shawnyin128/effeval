@@ -34,13 +34,13 @@ class Params(SampleLimit):
 
 
 def task_for(info: PromptSetInfo) -> TaskDef:
-    """The task `speed/<set name>` that measures generation speed on the prompt set `info`."""
+    """The task `specdecode/<set name>` that measures generation speed on the prompt set `info`."""
     return TaskDef(
-        name=f"speed/{info.name}",
-        evaluator="speed",
+        name=f"specdecode/{info.name}",
+        evaluator="specdecode",
         target=info.name,
         version=info.version,
-        category="throughput",
+        category="speculative_decoding",
         description=(
             f"{info.description} Generated with the model's chat template at batch size 1. Reports tokens "
             "per second, latency, peak memory and, for speculative decoding, the acceptance rate and mean "

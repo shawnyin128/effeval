@@ -55,6 +55,12 @@ def test_unknown_task_hint_lists_at_most_20_close_names():
     assert len(issues[0].hint.split(", ")) <= 20
 
 
+def test_old_speed_task_name_gets_a_renamed_hint():
+    issues = validate(spec(tasks=["speed/spec_bench"]), CATALOG)
+    assert codes(issues) == ["task.renamed"]
+    assert "specdecode/spec_bench" in issues[0].hint
+
+
 def test_num_fewshot_is_a_generic_task_setting():
     def effective(params):
         res = resolve(spec(tasks=[{"name": "lm_eval/gsm8k", "params": params}]), CATALOG)

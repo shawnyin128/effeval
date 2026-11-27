@@ -480,10 +480,10 @@ def _evaluator_for(
         )
         return None
     if runtime != "hf":
-        if evaluator.name != "speed":
+        if evaluator.name != "specdecode":
             res.error(
                 "runtime.task_unsupported",
-                f"{runtime} only runs speed tasks, not {task.name!r}",
+                f"{runtime} only runs specdecode tasks, not {task.name!r}",
                 [f"{path}.name", "runtime.name"],
             )
             return None
@@ -849,7 +849,7 @@ def _check_decoding(
     if timed and spec.hardware.gpu is None:
         res.error(
             "speed.hardware_required",
-            "speed tasks are only meaningful on a known GPU",
+            "specdecode tasks are only meaningful on a known GPU",
             ["hardware.gpu"],
             hint=f"set hardware.gpu to one of {sorted(catalog.gpus)}",
         )
@@ -950,7 +950,7 @@ def _samples(spec: RunSpec, plan: TaskPlan) -> bool:
 
 
 def _check_sampling(spec: RunSpec, res: Resolution) -> None:
-    """top_p / top_k need sampling and only speed tasks pass them; repeats of a sampled run share a seed."""
+    """top_p / top_k need sampling and only specdecode tasks pass them; sampled repeats share a seed."""
     sampling = [(index, plan) for index, plan in enumerate(res.tasks) if _samples(spec, plan)]
     for key in ("top_p", "top_k"):
         if getattr(spec.generation, key) is None:
@@ -967,7 +967,7 @@ def _check_sampling(spec: RunSpec, res: Resolution) -> None:
             if plan.mode != Mode.SPEED:
                 res.error(
                     "generation.filter_speed_only",
-                    f"{plan.task.name}: top_p/top_k apply to speed tasks only; "
+                    f"{plan.task.name}: top_p/top_k apply to specdecode tasks only;"
                     f"{plan.evaluator.name} does not pass them",
                     ["generation.top_p", "generation.top_k", f"tasks[{index}]"],
                 )
@@ -1010,7 +1010,7 @@ def _check_speculative(spec: RunSpec, entry: ModelEntry, catalog: Catalog, res: 
         if plan.mode != Mode.SPEED and _samples(spec, plan):
             res.error(
                 "decoding.sampling_unavailable",
-                "speculative sampling is available on speed tasks (speed/<prompt set>) only; "
+                "speculative sampling is available on specdecode tasks (specdecode/<prompt set>) only; "
                 f"{plan.task.name} decodes greedily under speculative decoding",
                 ["generation.do_sample", f"tasks[{index}].params.do_sample"],
                 hint="set do_sample false for this task",
@@ -1231,6 +1231,15 @@ def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
             )
     for index, ref in enumerate(spec.tasks):
         task = catalog.tasks.get(ref.name)
+        if task is None and ref.name.startswith("speed/"):
+            renamed = "specdecode/" + ref.name.removeprefix("speed/")
+            res.error(
+                "task.renamed",
+                f"task {ref.name!r} was renamed to {renamed!r}",
+                [f"tasks[{index}].name"],
+                hint=f"use {renamed}",
+            )
+            continue
         if task is None:
             close = difflib.get_close_matches(ref.name, catalog.tasks, n=20, cutoff=0.5)
             res.error(

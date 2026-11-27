@@ -168,7 +168,7 @@ def test_sampling_verification_uses_the_rejection_rule(dirs):
 class Recorder:
     """Stand-in evaluator that remembers the handle of every job it runs."""
 
-    name = "speed"
+    name = "specdecode"
 
     def __init__(self):
         self.handles = {}
@@ -187,7 +187,7 @@ class Recorder:
 def catalog_and_plan(dirs):
     target, _ = model_entry(dirs["target"], None)
     draft, _ = model_entry(dirs["draft"], None)
-    second = SPEED_TASK.model_copy(update={"name": "speed/second"})
+    second = SPEED_TASK.model_copy(update={"name": "specdecode/second"})
     catalog = _catalog(models={target.code: target, draft.code: draft})
     catalog = catalog.model_copy(update={"tasks": {**catalog.tasks, second.name: second}})
     raw = spec(
@@ -233,7 +233,7 @@ def test_a_job_whose_task_is_missing_from_the_catalog_fails_alone_with_a_clear_m
 ):
     catalog, plan = catalog_and_plan
     smaller = catalog.model_copy(
-        update={"tasks": {n: t for n, t in catalog.tasks.items() if n != "speed/second"}}
+        update={"tasks": {n: t for n, t in catalog.tasks.items() if n != "specdecode/second"}}
     )
     recorder = Recorder()
     monkeypatch.setattr(evaluators, "load", lambda name: recorder)
@@ -242,7 +242,7 @@ def test_a_job_whose_task_is_missing_from_the_catalog_fails_alone_with_a_clear_m
         plan, smaller, client=None, out_dir=tmp_path, owner=None, log=lambda line: None, keep_going=True
     )
     assert len(outcome.failed) == 2  # the missing task's main and reference jobs
-    assert all("speed/second" in f and "not in this machine's task catalog" in f for f in outcome.failed)
+    assert all("specdecode/second" in f and "not in this machine's task catalog" in f for f in outcome.failed)
     assert {task for task, _ in recorder.handles} == {SPEED_TASK.name}  # the other task still ran
 
     with pytest.raises(LookupError, match="not in this machine's task catalog"):

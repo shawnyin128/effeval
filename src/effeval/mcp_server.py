@@ -74,14 +74,15 @@ Speculative decoding: use field "speculative_decoding". A RunSpec takes "decodin
 "draft": {"model": <model code>}, "num_speculative_tokens": k} (the target is the top-level "model"; the draft
 and k, 1 to 16, are required, and the draft must share the target's vocabulary) and "runtime": {"name": "hf" |
 "vllm" | "sglang"} for the provider (hf = transformers). describe's "runtimes" says which providers this host
-can run (vllm and sglang need their own Python configured); those two run only speed tasks
-(speed/<prompt set>: speed/spec_bench, or a user JSONL prompt set as speed/<name>; find them with
-search_tasks). Timed (speed) tasks need "hardware": {"gpu": ...} and "generation": {"batch_size": 1}.
+can run (vllm and sglang need their own Python configured); those two run only specdecode tasks
+(specdecode/<prompt set>: specdecode/spec_bench, or a user JSONL prompt set as specdecode/<name>; find them
+with search_tasks). Timed (specdecode) tasks need "hardware": {"gpu": ...} and
+"generation": {"batch_size": 1}.
 Each job is compared with plain
 autoregressive decoding of the same target on the same provider, which runs as its reference. A table row
 takes "decoding" and "runtime" like a RunSpec; the draft model, k and provider are config columns of rows and
 records ("draft", "decoding", "runtime"), not part of the method label.
-Speed tasks may sample under speculative decoding (generation.do_sample, temperature, top_p, top_k);
+Specdecode tasks may sample under speculative decoding (generation.do_sample, temperature, top_p, top_k);
 every other task decodes greedily. For independent sampled runs use repeats.seeds.
 """
 

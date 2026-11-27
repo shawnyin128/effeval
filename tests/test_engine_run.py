@@ -98,7 +98,7 @@ def plan_for(model_dirs, runtime=None, **extra):
         "model": {"name": target.code, "dtype": "float32"},
         "method": {"name": "base"},
         "field": "speculative_decoding",
-        "tasks": [{"name": "speed/tiny", "params": {"max_new_tokens": 10, "warmup": 1}}],
+        "tasks": [{"name": "specdecode/tiny", "params": {"max_new_tokens": 10, "warmup": 1}}],
         "decoding": {
             "mode": "speculative",
             "draft": {"model": {"name": draft.code, "dtype": "float32"}},

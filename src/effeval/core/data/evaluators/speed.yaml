@@ -1,4 +1,4 @@
-name: speed
+name: specdecode
 version: "1"
 description: Generation speed at batch size 1 on a prompt set, timed per turn, for autoregressive and speculative decoding.
 capabilities:

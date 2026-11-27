@@ -1337,7 +1337,7 @@ def test_a_table_may_name_a_task_the_catalog_no_longer_has_and_can_still_be_froz
     _app, _admin, as_user = server
     alice = as_user("alice")
     alice.post("/api/projects", json={"name": "p"}).raise_for_status()
-    gone = "speed/removed_set"  # e.g. a user prompt set whose file was deleted after the table was saved
+    gone = "specdecode/removed_set"  # e.g. a user prompt set whose file was deleted after the table was saved
     view = alice.post("/api/projects/p/tables", json={**TABLE, "tasks": ["native/wikitext2_ppl", gone]})
     view.raise_for_status()
     rows = {r["label"]: r for r in view.json()["blocks"][0]["rows"]}
@@ -1923,7 +1923,7 @@ def speed_table(shared=None, rows=None):
         "name": "spec",
         "field": "speculative_decoding",
         "models": ["qwen3-8b"],
-        "tasks": ["speed/spec_bench"],
+        "tasks": ["specdecode/spec_bench"],
         "rows": rows or [{"label": "k4", "method": {"name": "base"}, "decoding": decoding(4)}],
         "shared": {"hardware": {"gpu": "H100-SXM"}, **(shared or {})},
     }
@@ -1931,7 +1931,7 @@ def speed_table(shared=None, rows=None):
 
 def speed_jobs(client, view):
     """Plan jobs of the speed cells of the table's rows, as (row key -> list of jobs, in seed order)."""
-    task = "speed/spec_bench"
+    task = "specdecode/spec_bench"
     rows = {r["key"]: r for r in view["blocks"][0]["rows"]}
     keys = [p["run_key"] for r in rows.values() for p in r["cells"][task].get("repeats", [r["cells"][task]])]
     url = f"/api/projects/p/tables/{view['table_id']}/command"
@@ -1939,7 +1939,7 @@ def speed_jobs(client, view):
 
 
 def spec_cells(view):
-    return {r["key"]: r["cells"]["speed/spec_bench"] for r in view["blocks"][0]["rows"]}
+    return {r["key"]: r["cells"]["specdecode/spec_bench"] for r in view["blocks"][0]["rows"]}
 
 
 def test_table_cells_carry_the_speed_comparisons_of_their_record(server, tmp_path):
@@ -2026,7 +2026,7 @@ def test_table_rows_take_a_runtime_and_each_provider_gets_its_own_baseline(serve
     assert (block["row0"]["runtime"], block["row1"]["runtime"]) == ("hf", "vllm")
     baselines = [r for r in block.values() if r["baseline"]]
     assert sorted(r["runtime"] for r in baselines) == ["hf", "vllm"]
-    assert len({r["cells"]["speed/spec_bench"]["run_key"] for r in block.values()}) == 4
+    assert len({r["cells"]["specdecode/spec_bench"]["run_key"] for r in block.values()}) == 4
 
 
 def test_a_provider_has_one_baseline_row_across_speed_and_accuracy_tasks(server):
@@ -2034,7 +2034,7 @@ def test_a_provider_has_one_baseline_row_across_speed_and_accuracy_tasks(server)
     alice = as_user("alice")
     alice.post("/api/projects", json={"name": "p"}).raise_for_status()
     decoding = {"mode": "speculative", "draft": {"model": "qwen3-0.6b"}, "num_speculative_tokens": 4}
-    tasks = ["speed/spec_bench", "lm_eval/gsm8k"]
+    tasks = ["specdecode/spec_bench", "lm_eval/gsm8k"]
     hf_row = {"label": "hf", "method": {"name": "base"}, "decoding": decoding}
     vllm_row = {**hf_row, "label": "vllm", "runtime": {"name": "vllm"}}
 
@@ -2048,7 +2048,7 @@ def test_a_provider_has_one_baseline_row_across_speed_and_accuracy_tasks(server)
     assert only["runtime"] == "hf" and set(only["cells"]) == set(tasks)
     both = baselines([hf_row, vllm_row])
     assert sorted(r["runtime"] for r in both) == ["hf", "vllm"]
-    assert all(r["cells"]["speed/spec_bench"] for r in both)
+    assert all(r["cells"]["specdecode/spec_bench"] for r in both)
 
 
 def test_records_carry_the_draft_k_and_provider_outside_the_label(server, speed_comparatives):

@@ -1153,7 +1153,8 @@ def _task_independent(group: dict[str, Any]) -> dict[str, Any]:
 def _add_references(baselines: dict[str, dict[str, Any]], plan: Plan, catalog: Catalog) -> None:
     """Put the plan's reference jobs into the baseline rows, one row per reference config.
 
-    A task brings its own generation settings, and a speed task its own cuda_graphs and static_cache_tokens,
+    A task brings its own generation settings, and a specdecode task its own cuda_graphs and
+    static_cache_tokens,
     so one reference differs in them between tasks; references that differ only there share a row when they
     are for different tasks.
     """

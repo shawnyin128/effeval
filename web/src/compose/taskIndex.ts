@@ -1,8 +1,8 @@
 // Pure helpers behind the task picker: the catalog holds thousands of tasks, so they are indexed once.
 import type { Describe, TaskDef } from "../api";
 
-export type Source = "lm_eval" | "evalscope" | "custom";
-export const SOURCES: Source[] = ["lm_eval", "evalscope", "custom"];
+export type Source = "lm_eval" | "evalscope" | "specdecode" | "custom";
+export const SOURCES: Source[] = ["lm_eval", "evalscope", "specdecode", "custom"];
 
 export interface TaskIndex {
   /** Tasks that are nobody's subtask, by source, sorted by name. */
@@ -14,9 +14,9 @@ export interface TaskIndex {
   counts: Record<Source, number>;
 }
 
-/** Where a task comes from: its library, or `custom` for everything else (native, kernel, third-party evaluators). */
+/** Where a task comes from: its library or the specdecode evaluator, or `custom` for everything else (native, kernel, third-party evaluators). */
 export function sourceOf(task: TaskDef): Source {
-  return task.evaluator === "lm_eval" || task.evaluator === "evalscope" ? task.evaluator : "custom";
+  return task.evaluator === "lm_eval" || task.evaluator === "evalscope" || task.evaluator === "specdecode" ? task.evaluator : "custom";
 }
 
 const byName = (a: TaskDef, b: TaskDef) => a.name.localeCompare(b.name);
@@ -25,7 +25,7 @@ const byName = (a: TaskDef, b: TaskDef) => a.name.localeCompare(b.name);
 export const PPL_CATEGORY = "language_modeling";
 
 /** Wording of an evaluation mode in the UI. */
-export const MODE_LABEL: Record<string, string> = { loglikelihood: "Likelihood", generation: "Generation" };
+export const MODE_LABEL: Record<string, string> = { loglikelihood: "Likelihood", generation: "Generation", speed: "Timed" };
 
 /** A library metric name as shown: filter suffix and module path dropped ("exact_match,strict-match" -> "exact_match"). */
 export function metricLabel(name: string): string {
@@ -40,9 +40,9 @@ export function splitName(task: TaskDef): [string, string] {
 /** Whether the task can run in `mode` ("all" accepts every task). */
 export const inMode = (task: TaskDef, mode: string) => mode === "all" || task.modes.includes(mode);
 
-/** Index the tasks that can run in one of `allowedModes`. */
-export function buildIndex(describe: Describe, allowedModes: string[]): TaskIndex {
-  const tasks = Object.values(describe.tasks).filter((t) => t.modes.some((m) => allowedModes.includes(m)));
+/** Index the tasks that can run in one of `allowedModes` and pass `keep`. */
+export function buildIndex(describe: Describe, allowedModes: string[], keep: (task: TaskDef) => boolean = () => true): TaskIndex {
+  const tasks = Object.values(describe.tasks).filter((t) => t.modes.some((m) => allowedModes.includes(m)) && keep(t));
   const lookup = new Map(tasks.map((t) => [t.name, t]));
   const nested = new Set<string>();
   const children = new Map<string, TaskDef[]>();
@@ -51,10 +51,10 @@ export function buildIndex(describe: Describe, allowedModes: string[]): TaskInde
     if (members.length) children.set(task.name, members);
     members.forEach((m) => nested.add(m.name));
   }
-  const roots: Record<Source, TaskDef[]> = { lm_eval: [], evalscope: [], custom: [] };
+  const roots: Record<Source, TaskDef[]> = { lm_eval: [], evalscope: [], specdecode: [], custom: [] };
   for (const task of tasks) if (!nested.has(task.name)) roots[sourceOf(task)].push(task);
   SOURCES.forEach((s) => roots[s].sort(byName));
-  const counts: Record<Source, number> = { lm_eval: 0, evalscope: 0, custom: 0 };
+  const counts: Record<Source, number> = { lm_eval: 0, evalscope: 0, specdecode: 0, custom: 0 };
   for (const task of tasks) counts[sourceOf(task)] += 1;
   return { roots, children, byName: lookup, counts };
 }
@@ -143,9 +143,9 @@ export function search(index: TaskIndex, query: string, source?: Source, limit =
   return { matches, roots, visible, expanded };
 }
 
-/** The server's common tasks that can run in one of `allowedModes`. */
-export function common(describe: Describe, allowedModes: string[]): TaskDef[] {
+/** The server's common tasks that can run in one of `allowedModes` and pass `keep`. */
+export function common(describe: Describe, allowedModes: string[], keep: (task: TaskDef) => boolean = () => true): TaskDef[] {
   return describe.common_tasks
     .map((n) => describe.tasks[n])
-    .filter((t): t is TaskDef => !!t && t.modes.some((m) => allowedModes.includes(m)));
+    .filter((t): t is TaskDef => !!t && t.modes.some((m) => allowedModes.includes(m)) && keep(t));
 }

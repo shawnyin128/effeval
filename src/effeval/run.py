@@ -318,8 +318,8 @@ def run_plan(
                 [job],
                 "task",
                 LookupError(
-                    f"task {name!r} is not in this machine's task catalog; a speed task needs its prompt set "
-                    "file in the directory named by EFFEVAL_PROMPT_SETS here"
+                    f"task {name!r} is not in this machine's task catalog; a specdecode task needs its "
+                    "prompt set file in the directory named by EFFEVAL_PROMPT_SETS here"
                 ),
             )
         pending = [j for j in pending if j not in missing]

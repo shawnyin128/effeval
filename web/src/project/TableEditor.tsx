@@ -229,6 +229,7 @@ export function TableEditor({ project, table, onClose, onSaved }: {
         </Field>
         <Field label={t("Shared run settings")}>
           <Textarea className="mono" placeholder={decodes ? "hardware: { gpu: RTX-A6000 }\nlimit: 40" : "limit: 200\ngeneration: { batch_size: 8 }"} value={shared} onChange={(e) => setShared(e.target.value)} style={{ minHeight: 84 }} />
+          {decodes && <div className="small muted mt-3">{t("Verification is Greedy unless generation sets do_sample: true with a temperature (SpS, specdecode tasks only), e.g. generation: { batch_size: 1, do_sample: true, temperature: 0.7 }.")}</div>}
         </Field>
       </div>
     </Dialog>

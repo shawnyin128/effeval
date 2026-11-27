@@ -9,7 +9,7 @@ import { MODE_LABEL, PPL_CATEGORY, SOURCES, buildIndex, common, inMode, metricLa
 
 const PAGE = 100;
 const SEARCH_LIMIT = 200;
-const SOURCE_LABEL: Record<Source, string> = { lm_eval: "lm-eval", evalscope: "evalscope", custom: "Custom" };
+const SOURCE_LABEL: Record<Source, string> = { lm_eval: "lm-eval", evalscope: "evalscope", specdecode: "SpecDecode", custom: "Custom" };
 type Filter = "all" | Source;
 /** What the evaluation measures: perplexity on a text dataset, KL against the reference model, or downstream task scores. */
 type Measure = "all" | "ppl" | "kl" | "downstream";
@@ -23,7 +23,7 @@ const blurb = (task: TaskDef) => task.description.replace(/^#+\s*/, "").replace(
  * downstream tasks are scored (likelihood or generation), then the kind of task, with the common tasks first.
  * Search is a shortcut at every level. Selected tasks show as removable chips. `readOnly` browses without checkboxes.
  */
-export function TaskPicker({ allowedModes, selected, presetTasks = [], invalid = new Set<string>(), onChange, readOnly = false, onOpen, onRestore }: {
+export function TaskPicker({ allowedModes, selected, presetTasks = [], invalid = new Set<string>(), onChange, readOnly = false, onOpen, onRestore, keep, whyExcluded }: {
   allowedModes: string[];
   selected: TaskRef[];
   presetTasks?: string[];
@@ -34,24 +34,34 @@ export function TaskPicker({ allowedModes, selected, presetTasks = [], invalid =
   onOpen?: (task: TaskDef) => void;
   /** Puts the preset's tasks back; offered while the selection differs from them. */
   onRestore?: () => void;
+  /** Tasks that fail it are left out of the list; undefined lists every task. */
+  keep?: (task: TaskDef) => boolean;
+  /** Why a selected task cannot run with the current settings, or null; such tasks stay selected and show as invalid. */
+  whyExcluded?: (task: TaskDef) => string | null;
 }) {
   const { describe } = useApp();
   const t = useT();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
-  const [measure, setMeasure] = useState<Measure>("all");
+  const [measureChoice, setMeasure] = useState<Measure>("all");
   const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
   const [category, setCategory] = useState("all");
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [shown, setShown] = useState(PAGE);
-  const index = useMemo(() => buildIndex(describe, allowedModes), [describe, allowedModes]);
+  const index = useMemo(() => buildIndex(describe, allowedModes, keep), [describe, allowedModes, keep]);
   const source = filter === "all" ? undefined : filter;
   const titles = useMemo(() => Object.fromEntries(Object.values(describe.categories).map((c) => [c.name, c.title ?? c.label])), [describe]);
   const categoryRank = useMemo(() => new Map(Object.values(describe.categories).map((c, i) => [c.name, c.order * 100 + i])), [describe]);
   const rank = (name: string) => categoryRank.get(name) ?? 9999;
-  const pinned = useMemo(() => common(describe, allowedModes), [describe, allowedModes]);
+  const pinned = useMemo(() => {
+    const tasks = common(describe, allowedModes, keep);
+    const listed = new Set(tasks.map((x) => x.name));
+    return [...tasks, ...index.roots.specdecode.filter((x) => !listed.has(x.name))];
+  }, [describe, allowedModes, keep, index]);
   const pinnedNames = useMemo(() => new Set(pinned.map((x) => x.name)), [pinned]);
   const found = useMemo(() => (query.trim() ? search(index, query, source, SEARCH_LIMIT, titles, pinnedNames) : null), [index, query, source, titles, pinnedNames]);
+  const specOnly = filter === "specdecode" || (index.counts.specdecode > 0 && index.counts.lm_eval + index.counts.evalscope + index.counts.custom === 0);
+  const measure: Measure = specOnly ? "all" : measureChoice;
   const names = new Set(selected.map((x) => x.name));
   const wantedMode = measure === "kl" ? "loglikelihood" : measure === "downstream" ? modeFilter : "all";
   const toggle = (task: TaskDef, on: boolean) => {
@@ -66,16 +76,17 @@ export function TaskPicker({ allowedModes, selected, presetTasks = [], invalid =
     for (const x of narrowed) counts.set(x.category, (counts.get(x.category) ?? 0) + 1);
     return [...counts].sort((a, b) => rank(a[0]) - rank(b[0]));
   }, [narrowed, categoryRank]);
-  const activeCategory = measure === "ppl" ? "all" : category;
+  const activeCategory = measure === "ppl" || specOnly ? "all" : category;
   const listed = useMemo(() => narrowed.filter((x) => activeCategory === "all" || x.category === activeCategory), [narrowed, activeCategory]);
-  const browsing = measure !== "all" || category !== "all";
+  const browsing = specOnly || measure !== "all" || category !== "all";
   const roots = found
     ? found.roots.map((n) => index.byName.get(n)!)
     : browsing ? [...listed].sort((a, b) => Number(pinnedNames.has(b.name)) - Number(pinnedNames.has(a.name))) : [];
   const commonGroups = useMemo(() => {
     const groups = new Map<string, TaskDef[]>();
     for (const x of pinned) if (!source || sourceOf(x) === source) groups.set(x.category, [...(groups.get(x.category) ?? []), x]);
-    return [...groups].sort((a, b) => rank(a[0]) - rank(b[0]));
+    const speed = (tasks: TaskDef[]) => Number(!tasks.some((x) => sourceOf(x) === "specdecode"));
+    return [...groups].sort((a, b) => speed(a[1]) - speed(b[1]) || rank(a[0]) - rank(b[0]));
   }, [pinned, source, categoryRank]);
   const reset = () => setShown(PAGE);
   const modeCounts = useMemo(() => {
@@ -145,13 +156,16 @@ export function TaskPicker({ allowedModes, selected, presetTasks = [], invalid =
       {!readOnly && (selected.length > 0 || differsFromPreset) && (
         <div className="tp-selected">
           <div className="tp-chiplist">
-            {selected.map((x) => (
-              <span key={x.name} className={`chip ${invalid.has(x.name) ? "invalid" : ""}`}>
+            {selected.map((x) => {
+              const why = whyExcluded?.(describe.tasks[x.name]) ?? null;
+              return (
+              <span key={x.name} className={`chip ${invalid.has(x.name) || why ? "invalid" : ""}`} title={why ?? undefined}>
                 <span className="mono">{x.name}</span>
                 {x.mode && <span className="faint">{MODE_LABEL[x.mode] ?? x.mode}</span>}
                 <button className="icon-button" aria-label={t("Remove {site}", { site: x.name })} onClick={() => onChange?.(selected.filter((y) => y.name !== x.name))}><X size={12} /></button>
               </span>
-            ))}
+              );
+            })}
             {selected.length === 0 && <span className="faint small">{t("No tasks selected")}</span>}
           </div>
           {differsFromPreset && onRestore && <Button variant="ghost" size="sm" onClick={onRestore}>{t("Restore preset tasks")}</Button>}
@@ -159,7 +173,7 @@ export function TaskPicker({ allowedModes, selected, presetTasks = [], invalid =
         </div>
       )}
       <div className="tp-steps">
-        <div className="tp-step">
+        {!specOnly && <div className="tp-step">
           <span className="tp-step-label small faint">{t("Measure")}</span>
           <Segmented value={measure} onChange={pick} options={[
             { value: "all", label: t("Common") },
@@ -167,7 +181,7 @@ export function TaskPicker({ allowedModes, selected, presetTasks = [], invalid =
             { value: "kl", label: t("KL divergence") },
             { value: "downstream", label: t("Downstream tasks") },
           ]} />
-        </div>
+        </div>}
         {measure === "kl" && <p className="tp-note small faint">{t("KL is computed against the reference model from the answer-choice distributions of Likelihood tasks. KL over a text dataset is not supported yet.")}</p>}
         {measure === "downstream" && (
           <div className="tp-step">
@@ -179,7 +193,7 @@ export function TaskPicker({ allowedModes, selected, presetTasks = [], invalid =
             ]} />
           </div>
         )}
-        {measure !== "ppl" && categories.length > 0 && (
+        {measure !== "ppl" && categories.length > (specOnly ? 1 : 0) && (
           <div className="tp-step">
             <span className="tp-step-label small faint">{t("Kind")}</span>
             <div className="tp-cats">
@@ -204,7 +218,7 @@ export function TaskPicker({ allowedModes, selected, presetTasks = [], invalid =
                 {tasks.map((task) => row(task, 0))}
               </Fragment>
             ))}
-            <p className="faint small tp-empty">{t("Pick what to measure or a kind above to browse all {n} tasks, or search.", { n: index.counts.lm_eval + index.counts.evalscope + index.counts.custom })}</p>
+            <p className="faint small tp-empty">{t("Pick what to measure or a kind above to browse all {n} tasks, or search.", { n: source ? index.counts[source] : SOURCES.reduce((n, s) => n + index.counts[s], 0) })}</p>
           </>
         )}
         {roots.slice(0, shown).map((task) => row(task, 0))}

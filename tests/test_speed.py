@@ -248,20 +248,29 @@ def test_a_manifest_needs_exactly_one_source_and_a_converter_only_with_a_downloa
 def test_a_user_set_is_discovered_as_a_task_and_searchable(user_sets):
     write_set(user_sets, "mine", GOOD)
     catalog = builtin_catalog()
-    task = catalog.tasks["speed/mine"]
-    assert task.evaluator == "speed" and task.target == "mine" and task.reference
+    task = catalog.tasks["specdecode/mine"]
+    assert task.evaluator == "specdecode" and task.target == "mine" and task.reference
     assert {"limit", "categories", "max_new_tokens", "warmup"} <= set(task.params_schema["properties"])
-    assert "speed/spec_bench" in catalog.tasks
+    assert "specdecode/spec_bench" in catalog.tasks
     dumped = {n: t.model_dump(mode="json") for n, t in catalog.tasks.items()}
-    assert "speed/mine" in search_tasks(dumped, "mine")
+    assert "specdecode/mine" in search_tasks(dumped, "mine")
+
+
+def test_speed_tasks_are_categorised_as_speculative_decoding(user_sets):
+    write_set(user_sets, "mine", GOOD)
+    catalog = builtin_catalog()
+    speed_tasks = [t for n, t in catalog.tasks.items() if n.startswith("specdecode/")]
+    assert {t.name for t in speed_tasks} == {"specdecode/spec_bench", "specdecode/mine"}
+    assert {t.category for t in speed_tasks} == {"speculative_decoding"}
+    assert catalog.categories["speculative_decoding"].title == "Speculative decoding"
 
 
 def test_a_missing_directory_means_no_user_sets_and_no_error(tmp_path, monkeypatch):
     monkeypatch.setenv(ENV_VAR, str(tmp_path / "absent"))
-    speed_tasks = {n for n in builtin_catalog().tasks if n.startswith("speed/")}
-    assert speed_tasks == {"speed/spec_bench"}
+    speed_tasks = {n for n in builtin_catalog().tasks if n.startswith("specdecode/")}
+    assert speed_tasks == {"specdecode/spec_bench"}
     monkeypatch.delenv(ENV_VAR)
-    assert "speed/spec_bench" in builtin_catalog().tasks
+    assert "specdecode/spec_bench" in builtin_catalog().tasks
 
 
 def test_a_user_set_cannot_reuse_a_built_in_name_or_an_invalid_name(user_sets):
@@ -275,9 +284,9 @@ def test_a_user_set_cannot_reuse_a_built_in_name_or_an_invalid_name(user_sets):
 
 
 def test_a_new_user_file_shows_up_without_a_restart(user_sets):
-    assert "speed/later" not in builtin_catalog().tasks
+    assert "specdecode/later" not in builtin_catalog().tasks
     write_set(user_sets, "later", GOOD)
-    assert "speed/later" in builtin_catalog().tasks
+    assert "specdecode/later" in builtin_catalog().tasks
 
 
 def planned(name, warmup=1, runtime=None):
@@ -298,12 +307,12 @@ def planned(name, warmup=1, runtime=None):
 
 def test_editing_a_user_set_changes_the_run_key(user_sets):
     path = write_set(user_sets, "mine", GOOD)
-    first_main, first_ref = planned("speed/mine")
-    again_main, _ = planned("speed/mine")
+    first_main, first_ref = planned("specdecode/mine")
+    again_main, _ = planned("specdecode/mine")
     assert run_key(first_main.spec) == run_key(again_main.spec)
 
     path.write_text(jsonl([*GOOD, {"id": "c", "category": "qa", "turns": ["new"]}]), encoding="utf-8")
-    edited_main, edited_ref = planned("speed/mine")
+    edited_main, edited_ref = planned("specdecode/mine")
     assert run_key(edited_main.spec) != run_key(first_main.spec)
     assert run_key(edited_ref.spec) != run_key(first_ref.spec)
     assert edited_main.spec.task.version != first_main.spec.task.version
@@ -311,10 +320,10 @@ def test_editing_a_user_set_changes_the_run_key(user_sets):
 
 def test_a_set_edited_after_planning_is_refused_at_run_time(user_sets):
     path = write_set(user_sets, "mine", GOOD)
-    _, ref = planned("speed/mine")
+    _, ref = planned("specdecode/mine")
     path.write_text(jsonl(GOOD[:1]), encoding="utf-8")
     with pytest.raises(ValueError, match="changed since the job was planned"):
-        speed.evaluate(FakeBackend(), ref.spec, builtin_catalog().tasks["speed/mine"])
+        speed.evaluate(FakeBackend(), ref.spec, builtin_catalog().tasks["specdecode/mine"])
 
 
 # Backend interface: a fake backend shows the evaluator does not depend on any decoding library
@@ -398,11 +407,11 @@ FAKE_ROWS = [
 @pytest.fixture
 def fake_set(user_sets):
     write_set(user_sets, "fake", FAKE_ROWS)
-    return planned("speed/fake")
+    return planned("specdecode/fake")
 
 
 def run_fake(fake_set, backend, role=1):
-    task = builtin_catalog().tasks["speed/fake"]
+    task = builtin_catalog().tasks["specdecode/fake"]
     return speed.evaluate(backend, fake_set[role].spec, task)
 
 
@@ -489,7 +498,7 @@ def engine_backend(fake_set, client=None, *, role=0, capacity=None, do_sample=Fa
 
 def test_the_evaluator_runs_an_engine_backend_end_to_end(fake_set):
     backend, job = engine_backend(fake_set)
-    result = speed.evaluate(backend, job, builtin_catalog().tasks["speed/fake"])
+    result = speed.evaluate(backend, job, builtin_catalog().tasks["specdecode/fake"])
     assert float(result.metrics["throughput_tok_s"]) == pytest.approx(12.0)
     assert float(result.metrics["latency_ms"]) == pytest.approx((250 + 500 + 250) / 3)
     assert float(result.metrics["acceptance_rate"]) == pytest.approx(2 / 3)
@@ -505,7 +514,7 @@ def test_the_evaluator_runs_an_engine_backend_end_to_end(fake_set):
 
 def test_an_autoregressive_engine_run_reports_no_speculative_metrics(fake_set):
     backend, job = engine_backend(fake_set, FakeEngineClient(stats=False), role=1)
-    result = speed.evaluate(backend, job, builtin_catalog().tasks["speed/fake"])
+    result = speed.evaluate(backend, job, builtin_catalog().tasks["specdecode/fake"])
     assert set(result.metrics) == {"throughput_tok_s", "latency_ms"}
     assert result.protocol["decoder"] == "autoregressive"
 
@@ -533,7 +542,7 @@ def test_spec_bench_deviations_on_an_engine_omit_determinism(fake_set, monkeypat
     loaded = promptsets.load_prompt_set("fake")
     renamed = replace(loaded, info=replace(loaded.info, name="spec_bench"))
     monkeypatch.setattr(speed, "load_prompt_set", lambda name: renamed)
-    task = builtin_catalog().tasks["speed/fake"]
+    task = builtin_catalog().tasks["specdecode/fake"]
     backend, job = engine_backend(fake_set)
     deviations = speed.evaluate(backend, job, task).protocol["deviations_from_spec_bench"]
     assert deviations == [d for d in speed.SPEC_BENCH_DEVIATIONS if not d.startswith("determinism:")]
@@ -545,12 +554,12 @@ def test_spec_bench_deviations_on_an_engine_omit_determinism(fake_set, monkeypat
 def test_engine_backend_reports_sampling(fake_set):
     backend, job = engine_backend(fake_set, do_sample=True, seed=11)
     assert backend.sampled
-    result = speed.evaluate(backend, job, builtin_catalog().tasks["speed/fake"])
+    result = speed.evaluate(backend, job, builtin_catalog().tasks["specdecode/fake"])
     assert result.protocol["temperature"] == 0.7
     assert result.protocol["sampling"] == {"temperature": 0.7, "top_p": None, "top_k": None, "seed": 11}
     assert [s.scores["sampled"] for s in result.samples] == [1.0] * len(result.samples)
     greedy, greedy_job = engine_backend(fake_set)
-    greedy_result = speed.evaluate(greedy, greedy_job, builtin_catalog().tasks["speed/fake"])
+    greedy_result = speed.evaluate(greedy, greedy_job, builtin_catalog().tasks["specdecode/fake"])
     assert greedy_result.protocol["sampling"] is None and greedy_result.protocol["temperature"] is None
     assert [s.scores["sampled"] for s in greedy_result.samples] == [0.0] * len(greedy_result.samples)
 
@@ -655,10 +664,10 @@ def test_warmup_runs_every_turn_of_the_first_sample_the_given_number_of_times(us
             {"id": "y", "category": "qa", "turns": ["solo"]},
         ],
     )
-    _, ref = planned("speed/two", warmup=3)
+    _, ref = planned("specdecode/two", warmup=3)
     backend = FakeBackend()
     backend.tokenizer = PaddedTokenizer()
-    speed.evaluate(backend, ref.spec, builtin_catalog().tasks["speed/two"])
+    speed.evaluate(backend, ref.spec, builtin_catalog().tasks["specdecode/two"])
 
     assert len(backend.calls) == 3 * 2 + 3  # 3 warmup rounds of x's two turns, then x (2 turns) and y
     rendered = backend.tokenizer.rendered
@@ -835,8 +844,8 @@ def test_the_speed_comparatives_are_registered_for_the_field():
 
 
 def test_the_spec_bench_task_is_in_the_catalog_with_its_settings():
-    task = CATALOG.tasks["speed/spec_bench"]
-    assert task.evaluator == "speed" and task.reference
+    task = CATALOG.tasks["specdecode/spec_bench"]
+    assert task.evaluator == "specdecode" and task.reference
     expected = {"limit", "categories", "max_new_tokens", "do_sample", "temperature", "warmup"}
     assert expected <= set(task.params_schema["properties"])
     assert task.settings({}).max_new_tokens == 1024 and task.settings({}).enable_thinking is False
@@ -844,7 +853,7 @@ def test_the_spec_bench_task_is_in_the_catalog_with_its_settings():
         "1+sha256:4b6d33e79484f9841c487ee87d1cf6aa8c6066f61d5d482ff09e5a007fafdf04"
         "+records:3f1c18c2248e415758c5c3c1280dcbe919ee893d3ac71fa38ce4e18d63664d4f"
     )
-    assert "speed" in CATALOG.evaluators
+    assert "specdecode" in CATALOG.evaluators
 
 
 # Tiny model on CPU
@@ -916,13 +925,13 @@ def speculative_handles(tiny, k=3):
 def tiny_set(user_sets):
     """The 12 Spec-Bench-shaped questions as a user set `tiny`, converted by the Spec-Bench converter."""
     write_set(user_sets, "tiny", spec_bench.convert(jsonl(SPEC_BENCH_ROWS).encode()))
-    return planned("speed/tiny")
+    return planned("specdecode/tiny")
 
 
 @pytest.mark.compute
 def test_speed_on_tiny_model_cpu(tiny, tiny_set):
     main_job, ref_job = tiny_set
-    task = builtin_catalog().tasks["speed/tiny"]
+    task = builtin_catalog().tasks["specdecode/tiny"]
     plain, spec_handle = speculative_handles(tiny)
 
     ref = speed.EVALUATOR.run(plain, ref_job.spec, task, None)
@@ -955,7 +964,7 @@ def test_speed_on_tiny_model_cpu(tiny, tiny_set):
 @pytest.mark.compute
 def test_the_second_turn_continues_the_conversation(tiny, tiny_set):
     _, ref_job = tiny_set
-    task = builtin_catalog().tasks["speed/tiny"]
+    task = builtin_catalog().tasks["specdecode/tiny"]
     plain, _ = speculative_handles(tiny)
     seen = []
     tokenizer = tiny[0]
@@ -1352,8 +1361,8 @@ def test_both_arms_report_the_same_target_decode_cache_and_the_draft_matches(tin
     from effeval.runtime import hf
 
     monkeypatch.setattr(hf, "decode_settings", static_eager)
-    main_job, ref_job = planned("speed/tiny", runtime={})
-    task = builtin_catalog().tasks["speed/tiny"]
+    main_job, ref_job = planned("specdecode/tiny", runtime={})
+    task = builtin_catalog().tasks["specdecode/tiny"]
     plain, spec_handle = arm_handles(tiny, main_job)
 
     ref = speed.EVALUATOR.run(plain, ref_job.spec, task, None)
@@ -1378,8 +1387,8 @@ def test_both_arms_record_the_attention_function_they_measured_with(tiny, tiny_s
     from effeval.runtime.speculative.static_attention import SDPA_NAME
 
     monkeypatch.setattr(hf, "decode_settings", static_eager)
-    main_job, ref_job = planned("speed/tiny", runtime={})
-    task = builtin_catalog().tasks["speed/tiny"]
+    main_job, ref_job = planned("specdecode/tiny", runtime={})
+    task = builtin_catalog().tasks["specdecode/tiny"]
 
     def own_models():
         models = (tiny[0], copy.deepcopy(tiny[1]), copy.deepcopy(tiny[2]))
@@ -1403,7 +1412,7 @@ def test_both_arms_record_the_attention_function_they_measured_with(tiny, tiny_s
 
 @pytest.mark.compute
 def test_the_dynamic_cache_is_reported_for_both_roles(tiny, tiny_set):
-    main_job, ref_job = planned("speed/tiny")
+    main_job, ref_job = planned("specdecode/tiny")
     plain, spec_handle = arm_handles(tiny, main_job)
     from effeval.evaluators._speed_inprocess import InProcessBackend
 
@@ -1429,8 +1438,8 @@ def test_prepare_runs_once_before_the_first_generate(tiny, tiny_set, monkeypatch
             return _original(self, *args, **kwargs)
 
         monkeypatch.setattr(decoder_class, name, spy)
-    main_job, ref_job = planned("speed/tiny")
-    task = builtin_catalog().tasks["speed/tiny"]
+    main_job, ref_job = planned("specdecode/tiny")
+    task = builtin_catalog().tasks["specdecode/tiny"]
     plain, spec_handle = arm_handles(tiny, main_job)
     handle, job = (spec_handle, main_job) if speculative else (plain, ref_job)
 
@@ -1446,7 +1455,7 @@ def test_prepare_runs_once_before_the_first_generate(tiny, tiny_set, monkeypatch
 def test_a_prepared_decoder_is_not_prepared_again(tiny, tiny_set, monkeypatch):
     from effeval.runtime.speculative import SpeculativeDecoder
 
-    main_job, _ = planned("speed/tiny")
+    main_job, _ = planned("specdecode/tiny")
     _, spec_handle = arm_handles(tiny, main_job)
     spec_handle.decoder.prepare()
     monkeypatch.setattr(SpeculativeDecoder, "prepare", lambda self: pytest.fail("prepared twice"))
@@ -1455,7 +1464,7 @@ def test_a_prepared_decoder_is_not_prepared_again(tiny, tiny_set, monkeypatch):
 
 @pytest.mark.compute
 def test_cuda_graphs_on_a_cpu_model_fail_fast(tiny, tiny_set):
-    _, ref_job = planned("speed/tiny", runtime={})
+    _, ref_job = planned("specdecode/tiny", runtime={})
     assert ref_job.spec.runtime.cuda_graphs
     from effeval.core.types import InProcess
 

@@ -29,11 +29,11 @@ class SpeedParams(SampleLimit):
 
 
 SPEED_TASK = TaskDef(
-    name="speed/spec_bench",
-    evaluator="speed",
+    name="specdecode/spec_bench",
+    evaluator="specdecode",
     target="spec_bench",
     version="1",
-    category="throughput",
+    category="speculative_decoding",
     description="stand-in for the Spec-Bench speed task",
     modes=[Mode.SPEED],
     default_mode=Mode.SPEED,
@@ -47,7 +47,7 @@ SPEED_TASK = TaskDef(
 
 def _speed_evaluator(handles: set[HandleKind]) -> EvaluatorDef:
     return EvaluatorDef(
-        name="speed",
+        name="specdecode",
         version="1",
         description="stand-in",
         capabilities=Capabilities(modes={Mode.SPEED}, handles=handles),
@@ -62,7 +62,7 @@ def _catalog(*, handles=frozenset({HandleKind.IN_PROCESS, HandleKind.ENGINE}), f
     return CATALOG.model_copy(
         update={
             "tasks": {**CATALOG.tasks, SPEED_TASK.name: SPEED_TASK},
-            "evaluators": {**CATALOG.evaluators, "speed": _speed_evaluator(set(handles))},
+            "evaluators": {**CATALOG.evaluators, "specdecode": _speed_evaluator(set(handles))},
             "fields": fields,
             "models": {**CATALOG.models, **(models or {})},
         }
@@ -93,7 +93,7 @@ def spec(**overrides):
 
 
 def speed_spec(**overrides):
-    return spec(tasks=["speed/spec_bench"], hardware={"gpu": "H100-SXM"}, **overrides)
+    return spec(tasks=["specdecode/spec_bench"], hardware={"gpu": "H100-SXM"}, **overrides)
 
 
 def codes(issues, severity="error"):
@@ -199,7 +199,7 @@ def test_decoding_sampling_unavailable_run_level_and_task_level():
     for raw in (run_level, task_level):
         assert "decoding.sampling_unavailable" in check(raw)
         issue = next(i for i in validate(raw, _catalog()) if i.code == "decoding.sampling_unavailable")
-        assert "speed tasks" in issue.message
+        assert "specdecode tasks" in issue.message
 
 
 def test_speculative_sampling_is_allowed_on_speed_tasks_and_the_reference_samples_alike():
@@ -348,7 +348,7 @@ def test_engine_run_key_depends_on_cuda_graphs_and_capacity():
 
 def test_sampling_is_accepted_on_an_engine_for_the_run_and_for_a_task():
     assert check(speed_spec(runtime={"name": "vllm"}, decoding=None, generation={"do_sample": True})) == []
-    task = {"name": "speed/spec_bench", "params": {"do_sample": True}}
+    task = {"name": "specdecode/spec_bench", "params": {"do_sample": True}}
     raw = spec(tasks=[task], hardware={"gpu": "H100-SXM"}, runtime={"name": "sglang"}, decoding=None)
     assert check(raw) == []
     assert check(speed_spec(runtime={"name": "vllm"}, generation={"do_sample": True})) == []
@@ -367,7 +367,7 @@ def test_a_draft_dtype_different_from_the_target_is_an_error_on_engines_only():
 
 def test_an_engine_runtime_needs_exactly_one_gpu():
     two = {"gpu": "H100-SXM", "count": 2}
-    raw = spec(tasks=["speed/spec_bench"], runtime={"name": "vllm"}, hardware=two)
+    raw = spec(tasks=["specdecode/spec_bench"], runtime={"name": "vllm"}, hardware=two)
     assert "runtime.single_gpu" in check(raw)
     assert "runtime.single_gpu" not in check(speed_spec(runtime={"name": "vllm"}))
 
@@ -412,27 +412,27 @@ def _key_pairs(raw):
 def test_greedy_keys_are_unchanged_by_the_sampling_fields():
     assert _key_pairs(speed_spec()) == {
         "reference": (
-            "rk_2ab79118a5e781555aa903b62dfbdb4aaebdc95f25126e264c7b21ce4725448a",
+            "rk_d2357084cafedfd2036e6c7f30e8fdf8dc6885c1a33522d851ebe9504256d7e3",
             "91fec4b84b4592f93c4a245cc7746266fb45d3410712890a314dfc1c8ab9230d",
         ),
         "main": (
-            "rk_1f7c3cdac08104f596a9981475fd64d54eab440d649ac3f697ce3926b3ce222b",
+            "rk_f00fff009ef3aa821d82dca99c4e608152989dc6f6a90df8d31437645f05fe9a",
             "7504b5072c5112104152bd6cd249ae31f29b45f1c8bdc296c10dfaede790ba50",
         ),
     }
     assert _key_pairs(speed_spec(runtime={"name": "vllm"})) == {
         "reference": (
-            "rk_8dabb56164775ed1254b77d74387a7a57d941d3d903f2cbd035ea3f7cc2ff46e",
+            "rk_abe28f717d657110a55df077c2c5f4089831b181c29774d510964d0f5a70af7a",
             "b98dabced241af353e278787d29ead39e1a28f3bab82b2385c6c5035453ee4f2",
         ),
         "main": (
-            "rk_240eae67befadbad181371cae0c4cb69afa1327ccf8a4d5d9057fdb84215571d",
+            "rk_45ea40944d5b05556de6252868d2b11f79719004b36e76d90d08795fd01b401a",
             "fc1a4ce3c77ed36a34874ccff8a5a52829b573768b48798158aa0c9d2fb10dac",
         ),
     }
     assert _key_pairs(speed_spec(generation={"do_sample": True}, decoding=None)) == {
         "main": (
-            "rk_6c7792bd031af62c74418fa360e6606193fa067e03e2082a32ba091b5f73579f",
+            "rk_e3bba8e7bfb85a2cf89858183d587600aba46f41d397570d3608f5c2709e3f89",
             "91fec4b84b4592f93c4a245cc7746266fb45d3410712890a314dfc1c8ab9230d",
         ),
     }
@@ -454,19 +454,19 @@ def test_top_p_top_k_rules():
 
 
 def test_a_task_that_does_not_sample_gets_no_top_p_or_top_k():
-    other = SPEED_TASK.model_copy(update={"name": "speed/other"})
+    other = SPEED_TASK.model_copy(update={"name": "specdecode/other"})
     catalog = _catalog()
     catalog = catalog.model_copy(update={"tasks": {**catalog.tasks, other.name: other}})
-    off = {"name": "speed/spec_bench", "params": {"do_sample": False}}
+    off = {"name": "specdecode/spec_bench", "params": {"do_sample": False}}
     raw = spec(
-        tasks=[off, "speed/other"],
+        tasks=[off, "specdecode/other"],
         hardware={"gpu": "H100-SXM"},
         generation={"do_sample": True, "top_p": 0.9},
     )
     plan, _ = frozen(raw, catalog)
     mains = {j.spec.task.name: j.spec.generation for j in plan.jobs if j.role == "main"}
-    assert mains["speed/spec_bench"].top_p is None and not mains["speed/spec_bench"].do_sample
-    assert mains["speed/other"].top_p == 0.9
+    assert mains["specdecode/spec_bench"].top_p is None and not mains["specdecode/spec_bench"].do_sample
+    assert mains["specdecode/other"].top_p == 0.9
 
 
 def test_repeats_seeds_give_one_reference_per_seed():

@@ -8,7 +8,7 @@ import { DestinationSelect, useDestination } from "./Projects";
 import { useT } from "../i18n";
 import { ModelPicker } from "../components/ModelPicker";
 import { MethodConfig, effectiveRules, hasFieldConfig, isRulesPath, normalizePath, problemAt, ruleSentence, type Problems } from "../compose/MethodConfig";
-import { Decoding, dropIncompatibleDraft, getIn, providerLabel, rolesOf, specDraftProblem, usesDecoding } from "../compose/Decoding";
+import { Decoding, dropIncompatibleDraft, getIn, isSampling, providerLabel, rolesOf, specDraftProblem, usesDecoding, verificationText } from "../compose/Decoding";
 import { alignDraftDtype, draftProblems } from "../compose/draftRules";
 import { Preprocess, effectiveSteps, preprocessLabel, preprocessLines } from "../compose/Preprocess";
 import { StepBar, type StepItem } from "../compose/StepBar";
@@ -105,9 +105,9 @@ function explain(issue: Issue, t: ReturnType<typeof useT>): string {
     case "decoding.draft_method_later":
       return t("The draft runs as a base model: methods and preprocessing on the draft are not supported yet.");
     case "decoding.sampling_unavailable":
-      return t("Speculative decoding samples on speed tasks only; set do_sample to false for other tasks.");
+      return t("Speculative sampling (SpS) runs on specdecode tasks only; switch Verification to Greedy for other tasks.");
     case "decoding.no_effect":
-      return t("This task is scored by loglikelihood and never decodes, so speculative decoding has no effect. Pick a generation or speed task.");
+      return t("This task is scored by loglikelihood and never decodes, so speculative decoding has no effect. Pick a generation or specdecode task.");
     case "decoding.batch_size":
       return t("Speculative and timed runs decode one sequence at a time; set Batch size to 1.");
     case "runtime.sampling_filters":
@@ -119,7 +119,7 @@ function explain(issue: Issue, t: ReturnType<typeof useT>): string {
     case "runtime.method_unsupported":
       return t("vLLM and SGLang run plain checkpoints; methods and preprocessing need the transformers provider.");
     case "runtime.task_unsupported":
-      return t("vLLM and SGLang run speed tasks (speed/…) only; use transformers for other tasks.");
+      return t("vLLM and SGLang run specdecode tasks (specdecode/…) only; use transformers for other tasks.");
     case "speed.hardware_required":
       return t("Timed tasks need a Target GPU, so results are comparable. Set it in Run settings.");
     case "mode.task_unsupported":
@@ -465,7 +465,7 @@ export function Compose() {
       );
       break;
     case "tasks":
-      body = <TasksStep title={stepTitle} field={spec.field} specTasks={spec.tasks} presetTasks={presetTasks} cleared={tasksCleared} onChange={setTasks} onRestore={restorePresetTasks} />;
+      body = <TasksStep title={stepTitle} field={spec.field} runtime={spec.runtime?.name} sampling={isSampling(spec)} specTasks={spec.tasks} presetTasks={presetTasks} cleared={tasksCleared} onChange={setTasks} onRestore={restorePresetTasks} />;
       break;
     case "taskConfig":
       body = <TaskConfigStep title={stepTitle} specTasks={spec.tasks} presetTasks={presetTasks} cleared={tasksCleared} invalid={invalid} runMaxNewTokens={spec.generation?.max_new_tokens ?? 512}
@@ -552,6 +552,7 @@ export function Compose() {
                   <dl className="kv">
                     <dt>{t("Provider")}</dt><dd>{providerLabel(describe, spec.runtime?.name)}</dd>
                     <dt>{t("Draft tokens per step (k)")}</dt><dd className="mono">{spec.decoding?.num_speculative_tokens ?? "—"}</dd>
+                    <dt>{t("Verification")}</dt><dd className="mono">{verificationText(spec, t)}</dd>
                   </dl>
                 )}
                 {decodingField && !fieldConfig ? null : !fieldConfig ? <span className="faint small">{t("none")}</span>

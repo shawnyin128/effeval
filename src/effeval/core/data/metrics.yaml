@@ -116,7 +116,7 @@ categories:
   - {name: other, label: Other, order: 8, title: Other}
   - {name: kernel, label: Kernel, order: 9}
   - {name: latency, label: Latency, order: 10}
-  - {name: throughput, label: Throughput, order: 11}
+  - {name: speculative_decoding, label: Speculative decoding, order: 11, title: Speculative decoding}
 
 averages:
   - {label: Average, metric: accuracy, categories: [qa, commonsense, reasoning, math]}

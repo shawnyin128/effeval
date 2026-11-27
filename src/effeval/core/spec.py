@@ -113,12 +113,12 @@ class GenerationSpec(StrictModel):
         default=None,
         gt=0.0,
         lt=1.0,
-        description="Nucleus sampling mass; only with do_sample, speed tasks only. Empty: no top-p.",
+        description="Nucleus sampling mass; only with do_sample, specdecode tasks only. Empty: off.",
     )
     top_k: int | None = Field(
         default=None,
         ge=1,
-        description="Keep the k most likely tokens; only with do_sample, speed tasks only. Empty: no top-k.",
+        description="Keep the k most likely tokens; only with do_sample, specdecode tasks only. Empty: off.",
     )
 
 

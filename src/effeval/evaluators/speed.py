@@ -1,6 +1,7 @@
 """Speed evaluator: per-turn generation timing on a prompt set, for autoregressive and speculative decoding.
 
-Tasks are `speed/<prompt set>`. Protocol after github.com/hemingkx/Spec-Bench `evaluation/eval.py`: warmup
+Tasks are `specdecode/<prompt set>`.
+Protocol after github.com/hemingkx/Spec-Bench `evaluation/eval.py`: warmup
 runs of the first selected sample (all its turns, `warmup` times), then each sample's turns in order (a later
 turn continues the conversation with the decoded, stripped previous answer), each turn timed from before the
 backend call to after it, with the device synchronized at both ends. Tokenization, `SpeedBackend.reset` and
@@ -24,7 +25,8 @@ Prompt set format, JSONL with one object per line (blank lines are skipped, unkn
   overriding the task's.
 
 Built-in sets are manifests in `core/data/prompt_sets`; a user set is `<name>.jsonl` in the directory named by
-`EFFEVAL_PROMPT_SETS` and becomes the task `speed/<name>`. The set's content hash is part of the task version,
+`EFFEVAL_PROMPT_SETS` and becomes the task `specdecode/<name>`. The set's content hash is part of the task
+version,
 so editing a set makes its results new ones.
 """
 
@@ -208,7 +210,7 @@ def make_backend(handle: InProcess | EngineHandle | None, job: JobSpec) -> Speed
 
 
 class Speed:
-    name = "speed"
+    name = "specdecode"
 
     def list_tasks(self) -> None:
         return None

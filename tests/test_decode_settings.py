@@ -174,10 +174,11 @@ def test_the_capacity_check_accepts_a_budget_equal_to_the_capacity_and_follows_t
 
 def test_the_task_budget_governs_over_the_generation_default():
     hardware = {"gpu": "H100-SXM"}
-    over = spec(tasks=[{"name": "speed/spec_bench", "params": {"max_new_tokens": 5000}}], hardware=hardware)
+    task = {"name": "specdecode/spec_bench", "params": {"max_new_tokens": 5000}}
+    over = spec(tasks=[task], hardware=hardware)
     assert capacity_issue(over) is not None
     under = spec(
-        tasks=[{"name": "speed/spec_bench", "params": {"max_new_tokens": 100}}],
+        tasks=[{"name": "specdecode/spec_bench", "params": {"max_new_tokens": 100}}],
         generation={"max_new_tokens": 5000},
         hardware=hardware,
     )

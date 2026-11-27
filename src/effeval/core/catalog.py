@@ -604,7 +604,7 @@ def _load_dir(package: str) -> list[dict[str, Any]]:
 
 
 def builtin_catalog() -> Catalog:
-    """The catalog shipped with the package plus a task `speed/<name>` for each user prompt set.
+    """The catalog shipped with the package plus a task `specdecode/<name>` for each user prompt set.
 
     User sets are rescanned on every call (cached while their files are unchanged). Raises
     pydantic.ValidationError on malformed data files and ValueError on a misnamed user set file.
