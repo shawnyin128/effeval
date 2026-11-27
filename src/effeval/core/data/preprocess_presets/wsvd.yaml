@@ -1,0 +1,35 @@
+# Weights and linear inputs are quantized; lm_head and embeddings stay 16-bit as in the official code.
+name: wsvd
+title: WSVD
+description: QuaRot-style rotations on the WSVD-factored model (R1 random Hadamard on the residual stream, per-head value rotation, online Hadamards before o_proj and down_proj); there is no Q/K rotation after RoPE because the KV cache stays 16-bit.
+paper: {title: "WSVD: Weighted Low-Rank Approximation for Fast and Efficient Execution of Low-Precision Vision-Language Models", arxiv: "2604.02570", official_repo: "https://github.com/SAI-Lab-NYU/WSVD@9dce5ce82314cf6cc7ecc6b1ee6fbe19a28a4484"}
+# Deviations from the official code, all intended: R1 is drawn from random_hadamard with seed 0 (the QAT of the wsvd
+# method trains in this basis, so its qat.residual_rotation must match); Hadamard products are computed in float64
+# instead of fast_hadamard_transform in fp16; embeddings are untied because Qwen3 ties them; embedding rows are not
+# mean-centred; head_dim comes from the model config; the o_proj online op mixes all heads * head_dim channels instead
+# of the official across-head Hadamard, which changes the A8 numerics versus the official code.
+quantizers:
+  wsvd: [paper_w8a8]
+values:
+  preprocess.steps:
+    value:
+      - kind: rotation
+        entries:
+          - position: residual
+            layers: all
+            mode: offline
+            source: {type: random_hadamard, seed: 0}
+            options: {untie_embeddings: true, center_embeddings: false}
+          - position: attn.v_head
+            layers: all
+            mode: offline
+            source: {type: hadamard}
+          - position: linear.attn.o_proj.input
+            layers: all
+            mode: online
+            source: {type: hadamard}
+          - position: linear.mlp.down_proj.input
+            layers: all
+            mode: online
+            source: {type: hadamard}
+    source: "code: fake_quant/rotation_utils.py#L1527-L1548 (rotate_modelllavasvdqkv: Q on the embedding, the three down factors, up/gate inputs, o/down outputs and lm_head), #L1284-L1317 (rotate_ov_proj: per-head Hadamard on the value path), fake_quant/main_llava_next.py#L313-L343 (online Hadamards before o_proj and down_proj)"

@@ -13,6 +13,7 @@ from effeval.core.lowrank import (  # noqa: E402
     ARCHITECTURE_ATTR,
     ARCHITECTURE_TRANSFORMS,
     LSVD,
+    QKV_PER_HEAD,
     QKV_SHARED,
     factor_qkv_architecture,
     factor_qkv_per_head_architecture,
@@ -165,7 +166,7 @@ def test_lsvd_architecture_adds_the_ffn_branches_only_when_enabled():
 
 
 def test_transform_registry_dispatches_lsvd_with_the_config():
-    assert set(ARCHITECTURE_TRANSFORMS) == {QKV_SHARED, LSVD}
+    assert set(ARCHITECTURE_TRANSFORMS) == {QKV_SHARED, LSVD, QKV_PER_HEAD}
     assert transform_architecture(DENSE, LSVD, {"ffn": {"enabled": True}}) == lsvd_architecture(
         DENSE, {"ffn": {"enabled": True}}
     )

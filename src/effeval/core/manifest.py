@@ -37,7 +37,7 @@ class MethodManifest(StrictModel):
     schema_hash: str
     builtin: bool = False
     description: str = ""
-    architecture_transform: Literal["qkv_shared", "lsvd"] | None = Field(
+    architecture_transform: Literal["qkv_shared", "lsvd", "qkv_per_head"] | None = Field(
         default=None,
         description="Structural rewrite the method's prepare stage applies before preprocessing; validation "
         "checks sites and positions against the rewritten layout.",

@@ -401,6 +401,22 @@ def test_an_lsvd_manifest_round_trips_through_the_server(server):
     assert described["lsvd"]["architecture_transform"] == "lsvd"
 
 
+def test_a_wsvd_manifest_round_trips_through_the_server(server):
+    from effeval.core.catalog import builtin_catalog
+
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    wsvd = builtin_catalog().manifests["wsvd"]
+    assert wsvd.architecture_transform == "qkv_per_head"
+    mine = wsvd.model_copy(update={"name": "my_wsvd", "builtin": False})
+    posted = alice.post("/api/methods", json=mine.model_dump(mode="json"))
+    posted.raise_for_status()
+    assert posted.json()["architecture_transform"] == "qkv_per_head"
+    described = alice.get("/api/describe").json()["methods"]
+    assert described["my_wsvd"]["architecture_transform"] == "qkv_per_head"
+    assert described["wsvd"]["architecture_transform"] == "qkv_per_head"
+
+
 def test_models_are_lab_wide_and_codes_cannot_be_redefined(server):
     _app, _admin, as_user = server
     alice, bob = as_user("alice"), as_user("bob")

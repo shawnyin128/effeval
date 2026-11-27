@@ -1,0 +1,104 @@
+# Deviations from the official code, all intended: calibration is wikitext2 text with the full-sequence causal-LM
+# loss (the official code calibrates on ScienceQA image-question prompts); the model runs in its registered dtype
+# (bfloat16, official fp16; the factors are trained in bfloat16 in both); head_dim comes from the model config; q is
+# split by num_attention_heads (the official --is_q_headnum; the released scripts omit it, which leaves q dense on a
+# GQA model); the input Gram comes from a full forward pass instead of the layer-by-layer replay; one backward pass
+# yields both gradient statistics; eval mode; a Gram that is not positive definite, a projection that keeps no
+# singular value in a layer, or any training error is an error (official: silent eigenvalue shift, dense fallback);
+# the value-path Hadamard is a dense float32 matmul (official: fast_hadamard_transform) and the rotation R is
+# QR-factorised on the CPU. Reproduced as released: the second singular value for an empty head, the double
+# normalisation of the k_proj gradient score, the dense pre-quantization of o_proj/gate/up/down, the QAT loss without
+# the RMSNorm gain and with the Fisher weight on rotated tensors.
+# tasks: text-only perplexity replaces the paper's VLM benchmarks (no source in the code).
+method: wsvd
+name: paper_w8a8
+description: WSVD W8A8 with the released settings (rank ratio 0.5, 150 local fine-tuning iterations, QAT from two thirds of them with a learned per-head rotation, W8A8 RTN); pairs with the preprocess preset `wsvd`.
+paper: {title: "WSVD: Weighted Low-Rank Approximation for Fast and Efficient Execution of Low-Precision Vision-Language Models", arxiv: "2604.02570", official_repo: "https://github.com/SAI-Lab-NYU/WSVD@9dce5ce82314cf6cc7ecc6b1ee6fbe19a28a4484"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 8, symmetric: true, granularity: per_channel, clip_search: {type: mse, grid: 100, max_shrink: 0.8, norm: 2.4}}
+      - sites: [linear.*.input]
+        layers: all
+        quant: {type: int, bits: 8, symmetric: true, granularity: per_token, clip_ratio: 1.0}
+    source: "code: script/local_qat/README.md#L88-L91 (--w_bits 8 --a_bits 8 --w_rtn --w_clip, --k_bits 16 --v_bits 16 so no KV rule), fake_quant/gptq_utils.py#L1217-L1251 (RTN with the mse clip grid on every linear and per-head factor), fake_quant/main_llava_next.py#L404-L445 (per-token activation quantizers on every linear input and on the latents); lm_head and embeddings are not quantized"
+  method.config.calibration.dataset:
+    value: wikitext2
+    source: "code: fake_quant/utils/data_utils.py (deviation: text-only, wikitext2 replaces ScienceQA_Train)"
+  method.config.calibration.n_samples:
+    value: 64
+    source: "code: script/local_qat/README.md#L88-L91 (--nsamples 64)"
+  method.config.calibration.seqlen:
+    value: 2048
+    source: "code: fake_quant/utils/data_utils.py (deviation: text-only, the window length is the loader's seqlen argument)"
+  method.config.calibration.seed:
+    value: 0
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--seed 0)"
+  method.config.decomposition.rank_ratio:
+    value: 0.5
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (RANKRATIOs default 0.5, --rank_ratio, --use_true_param_ratio), fake_quant/grad_info_utils.py#L1890-L1905"
+  method.config.decomposition.grad_alpha:
+    value: 1.0
+    source: "code: fake_quant/utils/utils.py (--grad_alpha default 1.0)"
+  method.config.decomposition.score_dtype:
+    value: bfloat16
+    source: "code: fake_quant/grad_info_utils.py#L600-L660 and #L1596-L1610 (gradient projection, accumulation and scores in bfloat16)"
+  method.config.decomposition.k_grad_normalisation:
+    value: twice
+    source: "code: fake_quant/grad_info_utils.py#L940-L952 (k_proj score normalised separately and again in the q/k/v loop)"
+  method.config.decomposition.empty_head_index:
+    value: 1
+    source: "code: fake_quant/local_ft_grad_utils.py#L2484-L2498 (a head missing from the allocation takes index [1] through a bare except)"
+  method.config.local_ft.iters:
+    value: 150
+    source: "code: script/local_qat/README.md#L88-L91 (--localft_iters 150)"
+  method.config.local_ft.lr:
+    value: 1.0e-4
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--localft_lr 1e-4)"
+  method.config.local_ft.weighted:
+    value: true
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--weighted_svd), fake_quant/local_ft_grad_utils.py#L2754-L2806"
+  method.config.local_ft.batch_size:
+    value: 64
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--bs 64: one step per iteration with 64 windows)"
+  method.config.local_ft.seed:
+    value: 0
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--seed 0)"
+  method.config.qat.enabled:
+    value: true
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--is_quant_aware_ft --qat_optim_R --qat_L_off)"
+  method.config.qat.start_fraction:
+    value: 0.66666667
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--qat_start_iter 0.66666667)"
+  method.config.qat.lr_factors:
+    value: 1.0e-5
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--qat_lr_UV 1e-5), fake_quant/local_ft_grad_utils.py#L994-L1146"
+  method.config.qat.lr_rotation:
+    value: 1.0
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--qat_lr_R 1.0), fake_quant/local_ft_grad_utils.py#L2633-L2679"
+  method.config.qat.scale_update_every:
+    value: 1
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--qat_param_update_freq 1)"
+  method.config.qat.w_bits:
+    value: 8
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--w_bits 8)"
+  method.config.qat.latent_rotation:
+    value: learned
+    source: "code: fake_quant/local_ft_grad_utils.py#L2543-L2618 (one R_h per head, learned by Stiefel SGDG)"
+  method.config.qat.residual_rotation:
+    value: random_hadamard
+    source: "code: fake_quant/rotation_utils.py#L1527-L1548 (--rotate: the QAT loss uses the matrix the later rotation applies; deviation: effeval's random_hadamard)"
+  method.config.qat.residual_rotation_seed:
+    value: 0
+    source: "code: script/local_qat/wsvd_qat_llava_next_7b.sh#L27-L74 (--seed 0)"
+  method.config.qat.value_hadamard:
+    value: true
+    source: "code: fake_quant/local_ft_grad_utils.py#L2809-L2860 (value head Hadamard in the QAT loss), fake_quant/rotation_utils.py#L1104-L1119"
+  method.config.qat.dense_prequant:
+    value: true
+    source: "code: fake_quant/local_ft_grad_utils.py#L1532-L1538 (o_proj, gate, up and down are quantized once before the rotation)"
+  tasks:
+    value: [native/wikitext2_ppl, native/c4_ppl]
+    source: "assumed"

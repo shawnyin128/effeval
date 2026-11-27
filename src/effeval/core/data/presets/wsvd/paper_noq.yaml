@@ -1,0 +1,67 @@
+# Deviations from the official code, all intended: calibration is wikitext2 text with the full-sequence causal-LM
+# loss (the official code calibrates on ScienceQA image-question prompts); the model runs in its registered dtype
+# (bfloat16, official fp16; the factors are trained in bfloat16 in both); head_dim comes from the model config; q is
+# split by num_attention_heads (the official --is_q_headnum; the released scripts omit it, which leaves q dense on a
+# GQA model); the input Gram comes from a full forward pass instead of the layer-by-layer replay; one backward pass
+# yields both gradient statistics; eval mode; a Gram that is not positive definite, a projection that keeps no
+# singular value in a layer, or any training error is an error (official: silent eigenvalue shift, dense fallback).
+# Reproduced as released: the second singular value for an empty head and the double normalisation of the k_proj
+# gradient score.
+# The released 16-bit setting (script/fp16): per-head q/k/v decomposition and local fine-tuning, no QAT, no quantization.
+# tasks: text-only perplexity replaces the paper's VLM benchmarks (no source in the code).
+method: wsvd
+name: paper_noq
+description: WSVD decomposition and local fine-tuning only, without quantization (the released noQ setting, rank ratio 0.9, 100 fine-tuning iterations, no QAT); no preprocess is needed.
+paper: {title: "WSVD: Weighted Low-Rank Approximation for Fast and Efficient Execution of Low-Precision Vision-Language Models", arxiv: "2604.02570", official_repo: "https://github.com/SAI-Lab-NYU/WSVD@9dce5ce82314cf6cc7ecc6b1ee6fbe19a28a4484"}
+values:
+  method.config.rules:
+    value: []
+    source: "code: script/fp16/wsvd_noq_llava_next_7b.sh#L5-L10 (wbits 16, bits 16: nothing is quantized)"
+  method.config.calibration.dataset:
+    value: wikitext2
+    source: "code: fake_quant/utils/data_utils.py (deviation: text-only, wikitext2 replaces ScienceQA_Train)"
+  method.config.calibration.n_samples:
+    value: 64
+    source: "code: script/fp16/wsvd_noq_llava_next_7b.sh#L5-L10 (BSs default 64, --nsamples)"
+  method.config.calibration.seqlen:
+    value: 2048
+    source: "code: fake_quant/utils/data_utils.py (deviation: text-only, the window length is the loader's seqlen argument)"
+  method.config.calibration.seed:
+    value: 0
+    source: "code: script/fp16/wsvd_noq_llava_next_7b.sh#L5-L10 (SEEDS default 0)"
+  method.config.decomposition.rank_ratio:
+    value: 0.9
+    source: "code: script/fp16/wsvd_noq_llava_next_7b.sh#L5-L10 (RANKRATIOs default 0.9, --use_true_param_ratio), fake_quant/grad_info_utils.py#L1890-L1905"
+  method.config.decomposition.grad_alpha:
+    value: 1.0
+    source: "code: fake_quant/utils/utils.py (--grad_alpha default 1.0)"
+  method.config.decomposition.score_dtype:
+    value: bfloat16
+    source: "code: fake_quant/grad_info_utils.py#L600-L660 and #L1596-L1610 (gradient projection, accumulation and scores in bfloat16)"
+  method.config.decomposition.k_grad_normalisation:
+    value: twice
+    source: "code: fake_quant/grad_info_utils.py#L940-L952 (k_proj score normalised separately and again in the q/k/v loop)"
+  method.config.decomposition.empty_head_index:
+    value: 1
+    source: "code: fake_quant/local_ft_grad_utils.py#L2484-L2498 (a head missing from the allocation takes index [1] through a bare except)"
+  method.config.local_ft.iters:
+    value: 100
+    source: "code: script/fp16/wsvd_noq_llava_next_7b.sh#L5-L10 (localft_iters default 100)"
+  method.config.local_ft.lr:
+    value: 1.0e-4
+    source: "code: script/fp16/wsvd_noq_llava_next_7b.sh#L5-L10 (localft_lrs default 1e-4)"
+  method.config.local_ft.weighted:
+    value: true
+    source: "code: script/fp16/wsvd_noq_llava_next_7b.sh#L5-L10 (--weighted_svd), fake_quant/local_ft_grad_utils.py#L2754-L2806"
+  method.config.local_ft.batch_size:
+    value: 64
+    source: "code: script/fp16/wsvd_noq_llava_next_7b.sh#L5-L10 (bsz 64: one step per iteration with 64 windows)"
+  method.config.local_ft.seed:
+    value: 0
+    source: "code: script/fp16/wsvd_noq_llava_next_7b.sh#L5-L10 (SEEDS default 0)"
+  method.config.qat.enabled:
+    value: false
+    source: "code: script/fp16/wsvd_noq_llava_next_7b.sh#L5-L10 (no --is_quant_aware_ft)"
+  tasks:
+    value: [native/wikitext2_ppl, native/c4_ppl]
+    source: "assumed"

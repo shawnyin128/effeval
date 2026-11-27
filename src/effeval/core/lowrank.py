@@ -16,6 +16,7 @@ from effeval.core.graph import GraphNode, LayerGraph, ModelShape
 ARCHITECTURE_ATTR = "_effeval_architecture"
 QKV_SHARED = "qkv_shared"
 LSVD = "lsvd"
+QKV_PER_HEAD = "qkv_per_head"
 QKV_CANONS = ("attn.q_proj", "attn.k_proj", "attn.v_proj")
 DOWN_CANON = "attn.qkv_down"
 DOWN_NAME = "qkv_down"
@@ -271,6 +272,7 @@ def lsvd_architecture(arch: ArchitectureDef, config: Mapping[str, Any]) -> Archi
 ARCHITECTURE_TRANSFORMS: dict[str, Callable[[ArchitectureDef, Mapping[str, Any]], ArchitectureDef]] = {
     QKV_SHARED: lambda arch, _config: factor_qkv_architecture(arch),
     LSVD: lsvd_architecture,
+    QKV_PER_HEAD: lambda arch, _config: factor_qkv_per_head_architecture(arch),
 }
 
 

@@ -30,13 +30,15 @@ from effeval.core.catalog import (
 )
 from effeval.core.fragments import QuantRule, linear_weight_rules
 from effeval.core.graph import attention_output_position
-from effeval.core.lowrank import qkv_budget, transform_architecture
+from effeval.core.lowrank import QKV_CANONS, QKV_DOWN_CANONS, qkv_budget, transform_architecture
 from effeval.core.manifest import MethodManifest, validate_method_config
 from effeval.core.preprocess import (
     DATA_SOURCES,
     GLOBAL_POSITIONS,
     RESERVED_SOURCES,
+    Hadamard,
     PreprocessPresetDef,
+    RandomHadamard,
     builtin_preprocess_presets,
     position_dim,
     rotation_option_problem,
@@ -582,6 +584,108 @@ def _check_selection_basis(spec: RunSpec, manifest: MethodManifest, res: Resolut
     )
 
 
+def _wsvd_factor_positions(architecture: ArchitectureDef) -> set[str]:
+    """Position ids whose scaling reaches the q/k/v factors: their norm and inputs, q/k and the value head."""
+    positions = {"attn.v_head", "attn.qk_pre_rope", "attn.qk_rope"}
+    positions.update(f"linear.{canon}.input" for canon in (*QKV_CANONS, *QKV_DOWN_CANONS))
+    graph = architecture.effective_graph()
+    for node in graph.of_kind("linear") if graph is not None else []:
+        if node.canon in QKV_CANONS:
+            positions.update(
+                f"norm.{producer.module}.out"
+                for producer, _site in graph.producers(node.id)
+                if producer.kind == "norm"
+            )
+    return positions
+
+
+def _source_text(source: Any) -> str:
+    fields = source.model_dump(exclude={"type"}, exclude_none=True)
+    return source.type + "".join(f" {key} {value}" for key, value in fields.items())
+
+
+def _basis_differences(entries: list, expected: list, what: str, with_options: bool) -> list[str]:
+    """One sentence per position where the applied rotation entries differ from the ones the QAT assumes."""
+    out = []
+    for index in range(max(len(entries), len(expected))):
+        got = entries[index] if index < len(entries) else None
+        want = expected[index] if index < len(expected) else None
+        if got is not None and want is not None and got.source == want and not (with_options and got.options):
+            continue
+        applied = "nothing"
+        if got is not None:
+            applied = _source_text(got.source) + (f" with options {got.options}" if got.options else "")
+        simulated = "nothing" if want is None else _source_text(want)
+        out.append(f"{what} #{index + 1}: the QAT assumes {simulated}, the preprocess applies {applied}")
+    return out
+
+
+def _check_wsvd_training(spec: RunSpec, manifest: MethodManifest, res: Resolution) -> None:
+    """Error when the WSVD QAT trains in a basis the preprocess does not deploy; warn on a bit width mismatch.
+
+    The QAT's residual rotation and value Hadamard must equal, in order, the residual and attn.v_head rotation
+    entries of the preprocess, and no scaling may touch the q/k/v norm, inputs, q/k or value head after it.
+    """
+    qat = spec.method.config.get("qat")
+    if manifest.architecture_transform != "qkv_per_head" or not isinstance(qat, dict):
+        return
+    if qat.get("enabled") is not True:
+        return
+    steps = spec.preprocess.steps if spec.preprocess is not None else []
+    rotations = [entry for step in steps if step.kind == "rotation" for entry in step.entries]
+    mode = qat.get("residual_rotation", "random_hadamard")
+    residual = {"none": [], "hadamard": [Hadamard()]}.get(
+        mode, [RandomHadamard(seed=qat.get("residual_rotation_seed", 0))]
+    )
+    value = [Hadamard()] if qat.get("value_hadamard", True) else []
+    checks = (
+        ("residual", residual, False, "method.config.qat.residual_rotation"),
+        ("attn.v_head", value, True, "method.config.qat.value_hadamard"),
+    )
+    for position, expected, with_options, path in checks:
+        entries = [entry for entry in rotations if entry.position == position]
+        for difference in _basis_differences(entries, expected, f"{position} rotation", with_options):
+            res.error(
+                "decomposition.qat_basis",
+                f"the QAT trains in a different basis than the preprocess deploys: {difference}",
+                [path],
+                hint="make the qat.residual_rotation* and qat.value_hadamard settings match the preprocess "
+                "rotation entries",
+            )
+    touched = _wsvd_factor_positions(res.architecture) if res.architecture is not None else set()
+    for step in steps:
+        if step.kind != "scaling":
+            continue
+        for entry in step.entries:
+            if entry.position in touched:
+                res.error(
+                    "decomposition.qat_basis",
+                    f"the preprocess scales {entry.position} ({_source_text(entry.source)}) after the QAT "
+                    "trained the q/k/v factors, which changes the basis they were trained in",
+                    ["preprocess.steps"],
+                    hint="drop the scaling at the q/k/v positions or train without qat",
+                )
+    w_bits = qat.get("w_bits", 8)
+    factor_sites = ("linear.attn.q_down.weight", "linear.attn.q_proj.weight")
+    rules = spec.method.config.get("rules")
+    for index, rule in enumerate(rules if isinstance(rules, list) else []):
+        quant = rule.get("quant") if isinstance(rule, dict) else None
+        if not isinstance(quant, dict) or quant.get("type") != "int" or quant.get("bits") == w_bits:
+            continue
+        patterns = rule.get("sites", [])
+        if any(fnmatch.fnmatchcase(site, pattern) for pattern in patterns for site in factor_sites):
+            res.issues.append(
+                Issue(
+                    code="decomposition.qat_bits",
+                    severity=Severity.WARNING,
+                    paths=[f"method.config.rules[{index}].quant.bits"],
+                    message=f"the QAT simulates {w_bits}-bit weights but rules[{index}] quantizes the "
+                    f"attention factors to {quant.get('bits')} bits",
+                    hint="set qat.w_bits to the factors' weight bit width",
+                )
+            )
+
+
 def _position_table(
     architecture: ArchitectureDef, entry: ModelEntry
 ) -> dict[str, dict[str, dict[str, str]]] | None:
@@ -1110,6 +1214,7 @@ def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
             return res
         _check_decomposition(spec, manifest, entry, res)
         _check_selection_basis(spec, manifest, res)
+        _check_wsvd_training(spec, manifest, res)
     if "quant_rules" in manifest.uses and isinstance(spec.method.config.get("rules"), list):
         _check_sites(spec.method.config["rules"], layout, entry, res)
     _check_preprocess(spec, layout, entry, res)

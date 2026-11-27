@@ -67,6 +67,9 @@ linear.attn.{q,k,v}_proj.* the per-head up factors whose .input is the latent) a
 gate/up into an SVD branch (linear.mlp.{gate,up}_svd_down/_svd_up.*) and RTN rows
 (linear.mlp.{gate,up}_proj.*) except in the last ffn.skip_last_layers layers.
 Pair lsvd with the preprocess preset lsvd.
+wsvd factors q/k/v per head with the same site names (no FFN) and trains the factors (local fine-tuning,
+then QAT with a learned per-head rotation folded into the factors) before the preprocessing.
+Pair wsvd with the preprocess preset wsvd.
 Speculative decoding: use field "speculative_decoding". A RunSpec takes "decoding": {"mode": "speculative",
 "draft": {"model": <model code>}, "num_speculative_tokens": k} (the target is the top-level "model"; the draft
 and k, 1 to 16, are required, and the draft must share the target's vocabulary) and "runtime": {"name": "hf" |

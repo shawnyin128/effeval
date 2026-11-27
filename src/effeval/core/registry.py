@@ -36,7 +36,7 @@ class MethodImpl:
     presets: dict[str, dict[str, Any]]
     description: str
     prepare: Callable[[Any, Any, Any], None] | None = None
-    architecture_transform: Literal["qkv_shared", "lsvd"] | None = None
+    architecture_transform: Literal["qkv_shared", "lsvd", "qkv_per_head"] | None = None
 
     @property
     def entry(self) -> str:
@@ -61,7 +61,7 @@ def method(
     presets: dict[str, dict[str, Any]] | None = None,
     description: str = "",
     prepare: Callable[[Any, Any, Any], None] | None = None,
-    architecture_transform: Literal["qkv_shared", "lsvd"] | None = None,
+    architecture_transform: Literal["qkv_shared", "lsvd", "qkv_per_head"] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register `fn(model, config, ctx)` as method `name`; `config` is its pydantic settings class.
 

@@ -16,7 +16,9 @@ BUILTIN = builtin_catalog()
 
 
 @pytest.mark.compute
-@pytest.mark.parametrize("name", ["rtn", "gptq", "paroquant", "codequant", "codequant2", "qsvd", "lsvd"])
+@pytest.mark.parametrize(
+    "name", ["rtn", "gptq", "paroquant", "codequant", "codequant2", "qsvd", "lsvd", "wsvd"]
+)
 def test_builtin_manifest_files_match_the_code(name):
     pytest.importorskip("torch")
     from effeval.api.execute import export_manifest
@@ -38,6 +40,7 @@ def test_builtin_methods_carry_their_standard_display_titles():
         "codequant2": "CodeQuant2",
         "qsvd": "QSVD",
         "lsvd": "LSVD",
+        "wsvd": "WSVD",
     }
 
 
