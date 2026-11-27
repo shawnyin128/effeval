@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import contextlib
 import random
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Literal
 
 import torch
@@ -303,15 +303,17 @@ def act_stats(
     model: nn.Module,
     windows: list[torch.Tensor],
     site_patterns: list[str],
-    stat: Literal["absmax", "absmean"],
+    stat: Literal["absmax", "absmean", "window_absmean_sum"],
 ) -> dict[tuple[str, int | None], torch.Tensor]:
     """Per-channel statistic of the tensors at activation sites over all calibration tokens.
 
     `site_patterns` are fnmatch patterns over `linear.<name>.input` / `.output` sites, as in quant rules.
-    absmax: max |x| per channel; absmean: mean |x| per channel over every token of every window. Returns
-    float32 [C] tensors keyed by (site, layer). Raises sites.SiteError when a pattern matches nothing.
+    absmax: max |x| per channel; absmean: mean |x| per channel over every token of every window;
+    window_absmean_sum: sum over windows of the per-window token mean of |x| (ASVD / QSVD `abs_mean`), which
+    needs every hooked call to hold one window. Returns float32 [C] tensors keyed by (site, layer). Raises
+    sites.SiteError when a pattern matches nothing.
     """
-    if stat not in ("absmax", "absmean"):
+    if stat not in ("absmax", "absmean", "window_absmean_sum"):
         raise ValueError(f"unsupported statistic {stat!r}")
     if not all(pattern.endswith((".input", ".output")) for pattern in site_patterns):
         raise ValueError("act_stats observes linear input or output sites")
@@ -322,8 +324,15 @@ def act_stats(
     maxima: dict[tuple[str, int | None], torch.Tensor] = {}
     sums: dict[tuple[str, int | None], torch.Tensor] = {}
     counts: dict[tuple[str, int | None], int] = {}
+    window_sums: dict[tuple[str, int | None], torch.Tensor] = {}
 
     def observe(key, tensor: torch.Tensor) -> None:
+        if stat == "window_absmean_sum":
+            if tensor.shape[0] != 1:
+                raise ValueError(f"window_absmean_sum needs one window per call, got batch {tensor.shape[0]}")
+            value = tensor.abs().mean(dim=-2).reshape(-1).float()
+            window_sums[key] = value if key not in window_sums else window_sums[key] + value
+            return
         flat = tensor.reshape(-1, tensor.shape[-1]).abs().float()  # [tokens, C]
         if stat == "absmax":
             current = flat.amax(dim=0)
@@ -355,7 +364,59 @@ def act_stats(
         model.config.use_cache = use_cache
     if stat == "absmax":
         return maxima
+    if stat == "window_absmean_sum":
+        return window_sums
     return {key: (sums[key] / counts[key]).float() for key in sums}
+
+
+def causal_lm_grads(
+    model: nn.Module,
+    batches: Sequence[torch.Tensor | Mapping[str, torch.Tensor]],
+    params: Sequence[nn.Parameter],
+    on_batch: Callable[[], None],
+) -> int:
+    """Backpropagates the causal-LM loss per batch and calls `on_batch` while `params` hold its gradient.
+
+    A tensor batch means `{"input_ids": batch}`; the labels are `batch["labels"]` when present, else the
+    `input_ids`. Only `params` require gradients during the call; `p.grad` is cleared after every batch. The
+    model runs in eval mode with `use_cache=False`; every parameter's `requires_grad`, `model.training` and
+    `config.use_cache` are restored on exit. Returns the number of batches. Raises ValueError when the model
+    has dropout (`nn.Dropout` with p > 0 or `config.attention_dropout` > 0).
+    """
+    if (
+        any(isinstance(m, nn.Dropout) and m.p > 0 for m in model.modules())
+        or (getattr(model.config, "attention_dropout", 0.0) or 0.0) > 0
+    ):
+        raise ValueError("gradient statistics assume a model without dropout")
+    all_params = list(model.parameters())
+    requires_grad = [p.requires_grad for p in all_params]
+    training = model.training
+    use_cache = model.config.use_cache
+    trainable = {id(p) for p in params}
+    device = next(model.parameters()).device
+    count = 0
+    try:
+        for p in all_params:
+            p.requires_grad_(id(p) in trainable)
+        model.eval()
+        model.config.use_cache = False
+        with torch.enable_grad():
+            for batch in batches:
+                inputs = {"input_ids": batch} if isinstance(batch, torch.Tensor) else dict(batch)
+                inputs = {name: value.to(device) for name, value in inputs.items()}
+                labels = inputs.pop("labels", inputs["input_ids"])
+                loss = model(**inputs, labels=labels).loss
+                loss.backward()
+                on_batch()
+                for p in params:
+                    p.grad = None
+                count += 1
+    finally:
+        for p, flag in zip(all_params, requires_grad, strict=True):
+            p.requires_grad_(flag)
+        model.train(training)
+        model.config.use_cache = use_cache
+    return count
 
 
 @torch.no_grad()

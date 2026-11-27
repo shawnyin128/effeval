@@ -1,0 +1,57 @@
+# Deviations from the official code, all intended: calibration is wikitext2 text with the full-sequence causal-LM
+# loss (the official code calibrates on ScienceQA image-question prompts); the model runs in its registered dtype
+# (bfloat16) instead of float16; the latent rotation matrix is the QR of a Gaussian matrix drawn from the
+# calibration seed on the CPU (official: QR on the GPU); eval mode instead of train mode (no dropout in Qwen3);
+# a layer that keeps no singular value is an error (official: silent fallbacks); the rank budget keeps the released
+# formula int(rank_ratio / 2 * num_layers * hidden), which on Qwen3 (grouped-query attention) is not a parameter ratio.
+# tasks: text-only perplexity replaces the paper's VLM benchmarks (no source in the code).
+method: qsvd
+name: paper_w4a4
+description: QSVD with W4A4 per-channel / per-token RTN quantizers (QSVD W4A4 setting, rank ratio 1.5), to be combined with the QSVD preprocess preset `qsvd`.
+paper: {title: "QSVD: Efficient Low-Rank Approximation for Unified Query-Key-Value Weight Compression in Low-Precision Vision-Language Models", arxiv: "2510.16292", official_repo: "https://github.com/SAI-Lab-NYU/QSVD@2a2d5ccd64ba775274ff78e8d325ebb52e77aff0"}
+values:
+  method.config.rules:
+    value:
+      - sites: [linear.*.weight]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: true, granularity: per_channel, clip_search: {type: mse, grid: 100, max_shrink: 0.8, norm: 2.4}}
+      - sites: [linear.*.input]
+        layers: all
+        quant: {type: int, bits: 4, symmetric: true, granularity: per_token, clip_ratio: 0.9}
+    source: "code: scripts/run_llavanext.sh#L1-L3 and #L12-L21 (--w_bits 4 --a_bits 4 --w_rtn --w_clip --a_clip_ratio 0.9, --k_bits 16 --v_bits 16 so no KV rule), fake_quant/utils.py#L124-L125 (activations symmetric by default) and #L137-L138 (weights symmetric by default), quant_utils.py#L437-L500 (per-channel weights with the mse clip grid) and #L195-L231 (per-token activations); lm_head and embeddings are not quantized (gptq_utils.py#L666-L668)"
+  method.config.calibration.dataset:
+    value: wikitext2
+    source: "code: fake_quant/data_utils.py#L5-L28 (deviation: text-only, the repository's get_wikitext2 replaces ScienceQA_Train)"
+  method.config.calibration.n_samples:
+    value: 256
+    source: "code: scripts/run_llavanext.sh#L4 and #L23 (bs=256, --nsamples)"
+  method.config.calibration.seqlen:
+    value: 2048
+    source: "code: fake_quant/data_utils.py#L5-L28 (deviation: text-only, the window length is the get_wikitext2 loader's seqlen argument)"
+  method.config.calibration.seed:
+    value: 0
+    source: "code: scripts/run_llavanext.sh#L7 and #L24 (seed=${2:-0}, --seed)"
+  method.config.decomposition.rank_ratio:
+    value: 1.5
+    source: "code: scripts/run_llavanext.sh#L6 (rank_ratio=${1:-1.5})"
+  method.config.decomposition.beta:
+    value: 0.2
+    source: "code: scripts/run_llavanext.sh#L5 (svd_mode=0.2)"
+  method.config.decomposition.act_alpha:
+    value: 0.5
+    source: "code: scripts/run_llavanext.sh#L32 (--act_alpha 0.5), fake_quant/utils.py#L194"
+  method.config.decomposition.grad_alpha:
+    value: 1.0
+    source: "code: fake_quant/utils.py#L231 (--grad_alpha default 1.0)"
+  method.config.decomposition.score_dtype:
+    value: float16
+    source: "code: fake_quant/grad_info_utils.py#L571-L606 (importance scores computed in float16)"
+  method.config.decomposition.latent_rotation:
+    value: random_orthogonal
+    source: "code: scripts/run_llavanext.sh#L30 (--had_rank) with had_mode 'random', fake_quant/svd_utils.py#L665-L674 and rotation_utils.py#L1821-L1838"
+  method.config.decomposition.latent_seed:
+    value: 0
+    source: "code: fake_quant/svd_utils.py#L665-L674 (set_seed(seed) before every layer's latent matrix), scripts/run_llavanext.sh#L7"
+  tasks:
+    value: [native/wikitext2_ppl, native/c4_ppl]
+    source: "assumed"

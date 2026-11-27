@@ -366,6 +366,25 @@ def test_a_method_written_to_the_interface_is_discovered_and_gets_its_form(serve
         registry.discover()
 
 
+def test_a_manifest_with_an_architecture_transform_round_trips_through_the_server(server):
+    from effeval.core.catalog import builtin_catalog
+
+    _app, _admin, as_user = server
+    alice = as_user("alice")
+    qsvd = builtin_catalog().manifests["qsvd"]
+    assert qsvd.architecture_transform == "qkv_shared"
+    mine = qsvd.model_copy(update={"name": "my_qsvd", "builtin": False})
+    posted = alice.post("/api/methods", json=mine.model_dump(mode="json"))
+    posted.raise_for_status()
+    assert posted.json()["architecture_transform"] == "qkv_shared"
+    stored = [m["manifest"] for m in alice.get("/api/methods").json() if m["manifest"]["name"] == "my_qsvd"]
+    assert [m["architecture_transform"] for m in stored] == ["qkv_shared"]
+    described = alice.get("/api/describe").json()["methods"]
+    assert described["my_qsvd"]["architecture_transform"] == "qkv_shared"
+    assert described["qsvd"]["architecture_transform"] == "qkv_shared"
+    assert "architecture_transform" not in described["rtn"]
+
+
 def test_models_are_lab_wide_and_codes_cannot_be_redefined(server):
     _app, _admin, as_user = server
     alice, bob = as_user("alice"), as_user("bob")

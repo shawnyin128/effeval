@@ -105,20 +105,27 @@ def _apply(
     if manifest.entry is not None:
         fn, config_model = method_function(manifest)
         config = method.config if config_model is None else config_model.model_validate(method.config)
+    impl = None if fn is None else registered(fn)
+    decomposition = None
+    if impl is not None and impl.prepare is not None:
+        impl.prepare(handle.model, handle.tokenizer, config)
+        raw = config.model_dump(mode="json") if config_model is not None else dict(method.config)
+        raw.pop("rules", None)
+        decomposition = {"method": manifest.name, "config": raw}
     summary = None
     if preprocess is not None:
         make_context, apply = (resolve_entry(entry) for entry in PREPROCESS_ENTRIES)
         weight = handle.model.get_input_embeddings().weight
+        model_id = {
+            "checkpoint": model.checkpoint,
+            "revision": model.revision,
+            "dtype": str(weight.dtype),
+            "device": weight.device.type,
+        }
+        if decomposition is not None:
+            model_id["decomposition"] = decomposition
         context = make_context(
-            handle.model,
-            handle.tokenizer,
-            {
-                "checkpoint": model.checkpoint,
-                "revision": model.revision,
-                "dtype": str(weight.dtype),
-                "device": weight.device.type,
-            },
-            downstream=getattr(config, "rules", None),
+            handle.model, handle.tokenizer, model_id, downstream=getattr(config, "rules", None)
         )
         summary = preprocess_summary(preprocess, apply(handle.model, preprocess, context))
     if fn is None:

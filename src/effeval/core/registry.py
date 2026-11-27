@@ -12,7 +12,7 @@ import importlib
 import importlib.metadata
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -35,6 +35,8 @@ class MethodImpl:
     default_preset: str | None
     presets: dict[str, dict[str, Any]]
     description: str
+    prepare: Callable[[Any, Any, Any], None] | None = None
+    architecture_transform: Literal["qkv_shared"] | None = None
 
     @property
     def entry(self) -> str:
@@ -58,13 +60,17 @@ def method(
     default_preset: str | None = None,
     presets: dict[str, dict[str, Any]] | None = None,
     description: str = "",
+    prepare: Callable[[Any, Any, Any], None] | None = None,
+    architecture_transform: Literal["qkv_shared"] | None = None,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """Register `fn(model, config, ctx)` as method `name`; `config` is its pydantic settings class.
 
     `title` is the display name (e.g. 'GPTQ'); `name` stays the lowercase identifier. `version` must change
     whenever the method's numerical behavior changes. `uses` names shared settings
     (core/fragments.py) whose editors and checks the UI reuses; `presets` maps a preset name to config values;
-    `display` lists config fields shown as table columns.
+    `display` lists config fields shown as table columns. `prepare(model, tokenizer, config)` runs before the
+    job's preprocessing; the method function after it. `architecture_transform` names the structural rewrite
+    (`core.lowrank.ARCHITECTURE_TRANSFORMS`) that `prepare` applies to the model.
     """
 
     def register(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -84,6 +90,8 @@ def method(
             default_preset=default_preset,
             presets=dict(presets or {}),
             description=description,
+            prepare=prepare,
+            architecture_transform=architecture_transform,
         )
         return fn
 
@@ -150,4 +158,5 @@ def manifest_from_impl(impl: MethodImpl, *, builtin: bool) -> MethodManifest:
         schema_hash=schema_hash(config_schema),
         builtin=builtin,
         description=impl.description,
+        architecture_transform=impl.architecture_transform,
     )

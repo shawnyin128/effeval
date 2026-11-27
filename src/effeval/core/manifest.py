@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import jsonschema
-from pydantic import Field, ValidationError
+from pydantic import Field, SerializerFunctionWrapHandler, ValidationError, model_serializer
 
 from effeval.core.canonical import canonical_json, sha256_hex
 from effeval.core.fragments import FRAGMENTS
@@ -37,6 +37,18 @@ class MethodManifest(StrictModel):
     schema_hash: str
     builtin: bool = False
     description: str = ""
+    architecture_transform: Literal["qkv_shared"] | None = Field(
+        default=None,
+        description="Structural rewrite the method's prepare stage applies before preprocessing; validation "
+        "checks sites and positions against the rewritten layout.",
+    )
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_transform(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("architecture_transform") is None:
+            data.pop("architecture_transform", None)
+        return data
 
 
 def schema_hash(config_schema: dict[str, Any]) -> str:

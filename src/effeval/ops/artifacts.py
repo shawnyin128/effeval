@@ -6,6 +6,8 @@ on disk as safetensors files named by their key.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 from collections.abc import Callable
 from pathlib import Path
@@ -13,6 +15,7 @@ from typing import Any
 
 import torch
 from safetensors.torch import load_file, save_file
+from torch import nn
 
 from effeval.core.canonical import canonical_json, sha256_hex
 from effeval.core.fragments import Calibration
@@ -81,6 +84,13 @@ class ArtifactCache:
             save_file({name: t.detach().cpu().clone().contiguous() for name, t in tensors.items()}, partial)
             partial.replace(path)
         return tensors
+
+
+def weights_fingerprint(model: nn.Module) -> str:
+    """Digest of the per-tensor sums of absolute values: identifies the weights a cached artifact
+    came from."""
+    sums = [p.detach().abs().sum(dtype=torch.float64).cpu() for _name, p in sorted(model.named_parameters())]
+    return hashlib.sha256(json.dumps(torch.stack(sums).tolist()).encode()).hexdigest()
 
 
 _default: ArtifactCache | None = None

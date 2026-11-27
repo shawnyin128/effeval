@@ -1,0 +1,51 @@
+# Deviations from the official code, all intended: calibration is wikitext2 text with the full-sequence causal-LM
+# loss (the official code calibrates on ScienceQA image-question prompts); the model runs in its registered dtype
+# (bfloat16) instead of float16; the latent rotation matrix is the QR of a Gaussian matrix drawn from the
+# calibration seed on the CPU (official: QR on the GPU); eval mode instead of train mode (no dropout in Qwen3);
+# a layer that keeps no singular value is an error (official: silent fallbacks); the rank budget keeps the released
+# formula int(rank_ratio / 2 * num_layers * hidden), which on Qwen3 (grouped-query attention) is not a parameter ratio.
+# tasks: text-only perplexity replaces the paper's VLM benchmarks (no source in the code).
+method: qsvd
+name: paper_noq
+description: QSVD decomposition only, without quantization (the released 16-bit setting, rank ratio 0.9, singular values split evenly); no preprocess is needed.
+paper: {title: "QSVD: Efficient Low-Rank Approximation for Unified Query-Key-Value Weight Compression in Low-Precision Vision-Language Models", arxiv: "2510.16292", official_repo: "https://github.com/SAI-Lab-NYU/QSVD@2a2d5ccd64ba775274ff78e8d325ebb52e77aff0"}
+values:
+  method.config.rules:
+    value: []
+    source: "code: scripts/fp16_llavanext.sh#L1-L2 (--w_bits 16 --a_bits 16: nothing is quantized)"
+  method.config.calibration.dataset:
+    value: wikitext2
+    source: "code: fake_quant/data_utils.py#L5-L28 (deviation: text-only, the repository's get_wikitext2 replaces ScienceQA_Train)"
+  method.config.calibration.n_samples:
+    value: 256
+    source: "code: scripts/fp16_llavanext.sh#L4 and #L20 (bs=256, --nsamples)"
+  method.config.calibration.seqlen:
+    value: 2048
+    source: "code: fake_quant/data_utils.py#L5-L28 (deviation: text-only, the window length is the get_wikitext2 loader's seqlen argument)"
+  method.config.calibration.seed:
+    value: 0
+    source: "code: scripts/fp16_llavanext.sh#L7 and #L22 (seed=${2:-0}, --seed)"
+  method.config.decomposition.rank_ratio:
+    value: 0.9
+    source: "code: scripts/fp16_llavanext.sh#L6 (rank_ratio=${1:-0.9})"
+  method.config.decomposition.beta:
+    value: 0.5
+    source: "code: scripts/fp16_llavanext.sh#L5 (svd_mode=\"UV\": sqrt(S) on both factors)"
+  method.config.decomposition.act_alpha:
+    value: 0.5
+    source: "code: scripts/fp16_llavanext.sh#L30 (--act_alpha 0.5), fake_quant/utils.py#L194"
+  method.config.decomposition.grad_alpha:
+    value: 1.0
+    source: "code: fake_quant/utils.py#L231 (--grad_alpha default 1.0)"
+  method.config.decomposition.score_dtype:
+    value: float16
+    source: "code: fake_quant/grad_info_utils.py#L571-L606 (importance scores computed in float16)"
+  method.config.decomposition.latent_rotation:
+    value: random_orthogonal
+    source: "code: scripts/fp16_llavanext.sh#L28 (--had_rank) with had_mode 'random', fake_quant/svd_utils.py#L665-L674 and rotation_utils.py#L1821-L1838"
+  method.config.decomposition.latent_seed:
+    value: 0
+    source: "code: fake_quant/svd_utils.py#L665-L674 (set_seed(seed) before every layer's latent matrix), scripts/fp16_llavanext.sh#L7"
+  tasks:
+    value: [native/wikitext2_ppl, native/c4_ppl]
+    source: "assumed"

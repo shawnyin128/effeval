@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import contextlib
 import gc
-import hashlib
 import json
 import logging
 import math
@@ -37,7 +36,7 @@ from effeval.core.fragments import CodebookFormat, QuantRule
 from effeval.core.registry import method
 from effeval.core.types import StrictModel
 from effeval.ops import codebook, sites
-from effeval.ops.artifacts import ArtifactCache, artifact_key, default_cache
+from effeval.ops.artifacts import ArtifactCache, artifact_key, default_cache, weights_fingerprint
 from effeval.ops.calibration import reasoning_mixture
 
 logger = logging.getLogger(__name__)
@@ -709,12 +708,6 @@ def generate_traces(
     return completions
 
 
-def _fingerprint(model: nn.Module) -> str:
-    """Digest of the per-tensor sums of absolute values: identifies the weights a cached trace came from."""
-    sums = [p.detach().abs().sum(dtype=torch.float64).cpu() for _name, p in sorted(model.named_parameters())]
-    return hashlib.sha256(json.dumps(torch.stack(sums).tolist()).encode()).hexdigest()
-
-
 def reasoning_rows(
     model: nn.Module, tokenizer, cfg: RacCalibration, cache: ArtifactCache | None = None
 ) -> list[str]:
@@ -731,7 +724,7 @@ def reasoning_rows(
             model={
                 "id": model.config._name_or_path,
                 "dtype": str(next(model.parameters()).dtype),
-                "weights": _fingerprint(model),
+                "weights": weights_fingerprint(model),
             },
             calibration=None,
             statistic=f"codequant2.traces:v{CODE_VERSION}",

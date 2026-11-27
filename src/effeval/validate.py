@@ -30,6 +30,7 @@ from effeval.core.catalog import (
 )
 from effeval.core.fragments import QuantRule, linear_weight_rules
 from effeval.core.graph import attention_output_position
+from effeval.core.lowrank import qkv_budget, transform_architecture
 from effeval.core.manifest import MethodManifest, validate_method_config
 from effeval.core.preprocess import (
     DATA_SOURCES,
@@ -522,6 +523,33 @@ def _check_sites(rules: list[Any], architecture: ArchitectureDef, entry: ModelEn
                 [f"method.config.rules[{r_index}].sites"],
                 hint="quantize lm_head.input/output instead, or use an untied model",
             )
+
+
+def _check_decomposition(spec: RunSpec, manifest: MethodManifest, entry: ModelEntry, res: Resolution) -> None:
+    """Warn when the shared-down q/k/v factorisation at `decomposition.rank_ratio` saves no parameters."""
+    decomposition = spec.method.config.get("decomposition")
+    ratio = decomposition.get("rank_ratio") if isinstance(decomposition, dict) else None
+    if manifest.architecture_transform != "qkv_shared" or entry.shape is None:
+        return
+    if isinstance(ratio, bool) or not isinstance(ratio, (int, float)) or ratio <= 0:
+        return
+    shape = entry.shape
+    budget = qkv_budget(shape, ratio)
+    if budget.param_ratio < 1:
+        return
+    out_total = (shape.heads + 2 * shape.kv_heads) * shape.head_dim
+    r_eq = 2 * (shape.hidden * out_total / (shape.hidden + out_total)) / shape.hidden
+    res.issues.append(
+        Issue(
+            code="decomposition.no_saving",
+            severity=Severity.WARNING,
+            paths=["method.config.decomposition.rank_ratio"],
+            message=f"rank_ratio {ratio} keeps on average {budget.mean_rank:.0f} of {shape.hidden} singular "
+            f"values per layer: the factored q/k/v hold {budget.param_ratio:.1%} of the dense parameters and "
+            f"the latent is {budget.latent_ratio:.1%} of the K/V width",
+            hint=f"rank_ratio below {r_eq:.3f} saves parameters on this model",
+        )
+    )
 
 
 def _position_table(
@@ -1043,9 +1071,17 @@ def resolve(raw: dict[str, Any], catalog: Catalog) -> Resolution:
         )
 
     res.issues.extend(validate_method_config(manifest, spec.method.config, "method.config"))
+    layout = architecture
+    if manifest.architecture_transform is not None:
+        try:
+            layout = transform_architecture(architecture, manifest.architecture_transform)
+        except ValueError as exc:
+            res.error("method.architecture_unsupported", str(exc), ["method.name", "model.name"])
+            return res
+        _check_decomposition(spec, manifest, entry, res)
     if "quant_rules" in manifest.uses and isinstance(spec.method.config.get("rules"), list):
-        _check_sites(spec.method.config["rules"], architecture, entry, res)
-    _check_preprocess(spec, architecture, entry, res)
+        _check_sites(spec.method.config["rules"], layout, entry, res)
+    _check_preprocess(spec, layout, entry, res)
 
     if not spec.tasks:
         res.error("tasks.required", "no tasks given and the method has no preset tasks", ["tasks"])

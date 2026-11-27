@@ -58,6 +58,10 @@ The quantizer stays the method; a preprocess preset lists its paired method pres
 and needs one of them set explicitly. Example "QuaRot + GPTQ W4A4KV4": save_table rows
 [{"label": "QuaRot + GPTQ W4A4KV4", "preprocess": "quarot",
 "method": {"name": "gptq", "preset": "quarot_w4a4kv4"}}].
+Low-rank methods (qsvd) factor q/k/v before the preprocessing: q/k/v become a shared down factor
+(linear.attn.qkv_down.*) and per-projection up factors (linear.attn.{q,k,v}_proj.* now name the up
+factors, their .input is the rank-r latent). Pair qsvd with the preprocess preset qsvd (QuaRot rotations
+on the factored model); validate reports the kept parameter ratio when it is not a saving.
 Speculative decoding: use field "speculative_decoding". A RunSpec takes "decoding": {"mode": "speculative",
 "draft": {"model": <model code>}, "num_speculative_tokens": k} (the target is the top-level "model"; the draft
 and k, 1 to 16, are required, and the draft must share the target's vocabulary) and "runtime": {"name": "hf" |

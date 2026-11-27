@@ -11,18 +11,23 @@ from effeval.core.types import StrictModel
 from effeval.ops import sites
 
 
+def check_clip_search(rules: list[QuantRule]) -> None:
+    """Raises ValueError when a rule with `clip_search` has a site that is not a '.weight' site."""
+    for index, rule in enumerate(rules):
+        if (
+            isinstance(rule.quant, IntFormat)
+            and rule.quant.clip_search is not None
+            and not all(pattern.endswith(".weight") for pattern in rule.sites)
+        ):
+            raise ValueError(f"rules[{index}]: clip_search applies to '.weight' sites only")
+
+
 class RTNConfig(StrictModel):
     rules: list[QuantRule] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _clip_search_on_weights(self) -> RTNConfig:
-        for index, rule in enumerate(self.rules):
-            if (
-                isinstance(rule.quant, IntFormat)
-                and rule.quant.clip_search is not None
-                and not all(pattern.endswith(".weight") for pattern in rule.sites)
-            ):
-                raise ValueError(f"rules[{index}]: clip_search applies to '.weight' sites only")
+        check_clip_search(self.rules)
         return self
 
 

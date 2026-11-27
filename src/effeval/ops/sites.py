@@ -41,6 +41,7 @@ from effeval.core.fragments import (
     QuantRule,
     select_layers,
 )
+from effeval.core.lowrank import ARCHITECTURE_ATTR
 from effeval.ops.quant.quant import fake_quantize
 
 QuantFormat = IntFormat | FpFormat | MxFormat
@@ -89,7 +90,11 @@ class Attachment:
 
 
 def architecture(model: nn.Module) -> ArchitectureDef:
-    """Layout of the model's HF architecture class, looked up in the architecture table."""
+    """Layout attached by a decomposition, else the model's HF class looked up in the architecture table."""
+    # set by ops.lowrank when q/k/v are factored
+    attached = getattr(model, ARCHITECTURE_ATTR, None)
+    if attached is not None:
+        return attached
     name = type(model).__name__
     known = builtin_catalog().architectures
     if name not in known:

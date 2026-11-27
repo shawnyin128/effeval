@@ -1,0 +1,36 @@
+# Weights and linear inputs are quantized; lm_head and embeddings stay 16-bit as in the official code.
+name: qsvd
+title: QSVD
+description: QuaRot-style rotations on the QSVD-factored model (R1 random Hadamard on the residual stream, per-head value rotation, online Hadamards before o_proj and down_proj); there is no Q/K rotation after RoPE because the KV cache stays 16-bit.
+paper: {title: "QSVD: Efficient Low-Rank Approximation for Unified Query-Key-Value Weight Compression in Low-Precision Vision-Language Models", arxiv: "2510.16292", official_repo: "https://github.com/SAI-Lab-NYU/QSVD@2a2d5ccd64ba775274ff78e8d325ebb52e77aff0"}
+# Deviations from the official code, all intended: R1 is drawn from random_hadamard with seed 0 (the official code
+# draws it from the global RNG state, which the seed does not reproduce); Hadamard products are computed in float64
+# instead of fast_hadamard_transform in fp16; embeddings are untied because Qwen3 ties them (the official code
+# rotates the embedding and the lm_head separately); embedding rows are not mean-centred; head_dim comes from the
+# model config (the official code assumes hidden // heads); the o_proj online op mixes all heads * head_dim
+# channels instead of the official across-head Hadamard, which changes the A4 numerics versus the official code.
+quantizers:
+  qsvd: [paper_w4a4]
+values:
+  preprocess.steps:
+    value:
+      - kind: rotation
+        entries:
+          - position: residual
+            layers: all
+            mode: offline
+            source: {type: random_hadamard, seed: 0}
+            options: {untie_embeddings: true, center_embeddings: false}
+          - position: attn.v_head
+            layers: all
+            mode: offline
+            source: {type: hadamard}
+          - position: linear.attn.o_proj.input
+            layers: all
+            mode: online
+            source: {type: hadamard}
+          - position: linear.mlp.down_proj.input
+            layers: all
+            mode: online
+            source: {type: hadamard}
+    source: "code: fake_quant/rotation_utils.py#L572-L593 (rotate_modelllavasvdqkv: R1 on the embedding, the shared down factor, up/gate inputs, o/down outputs and lm_head), #L1768-L1778 (rotate_ov_projsvdkv: per-head Hadamard on the value path), fake_quant/mainllavanext.py#L303-L317 (online Hadamards before down_proj and o_proj)"

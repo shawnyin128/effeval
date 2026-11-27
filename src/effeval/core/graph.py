@@ -277,6 +277,12 @@ def _linear_input(graph: LayerGraph, lin: GraphNode, producer: GraphNode, gqa: b
         rot_off = f"{gate} * up is a nonlinear product"
         has_branch = any(p.kind == "linear" for p, _ in graph.producers(producer.id))
         sc_off = OK if has_branch else "the product has no linear branch to fold the scale into"
+    elif producer.kind == "linear":
+        reason = (
+            f"the input is the latent of {producer.canon}, whose width the decomposition chooses per layer; "
+            "set the latent rotation in the method config"
+        )
+        return _cell(rot_off=reason, rot_on=reason, sc_off=reason, sc_on=reason)
     elif producer.kind == "matmul":
         rot_off = (
             "an across-head rotation does not commute: each head has its own softmax(QK)V; "
@@ -310,9 +316,12 @@ def input_width(graph: LayerGraph, shape: ModelShape, lin: GraphNode) -> int:
     and after a gating product the width of the MLP that product belongs to (routed expert, shared expert,
     dense).
 
-    Raises ValueError when the graph needs a MoE dimension `shape` does not have.
+    Raises ValueError when the graph needs a MoE dimension `shape` does not have, or when the producer is a
+    linear (a latent of decomposition-chosen width).
     """
     [(producer, _site)] = graph.producers(lin.id)
+    if producer.kind == "linear":
+        raise ValueError(f"{lin.canon} reads the latent of {producer.canon}, whose width is chosen per layer")
     if producer.kind == "matmul":
         return shape.heads * shape.head_dim
     if producer.kind != "mul":

@@ -507,6 +507,7 @@ export const ZH: Record<string, string> = {
   "{n} changed": "改了 {n} 项",
   "{n} selected": "已选 {n} 个",
   "Calibration": "校准",
+  "Decomposition": "分解",
   "Dataset": "数据集",
   "N samples": "样本数",
   "Seqlen": "序列长度",
